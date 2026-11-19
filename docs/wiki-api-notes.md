@@ -86,8 +86,8 @@ the numeric page id. Query: `cursor` (**string**, like comments; from
 `publication{status}`), plus `next_cursor`, `prev_cursor`.
 **Live-confirmed:** `page_size=3` returned three revisions and a base64
 `next_cursor`; `revision_draft` and `publication` may be `null`. There is no
-diff or restore endpoint: compare locally and restore by editing with the old
-content.
+diff or restore endpoint: `ywiki` builds the diff locally from two revision
+reads, and restoring means editing with the old content.
 
 ### GET `/v1/pages/{id}/comments` → 200
 List top-level discussion comments for a page. Keyed by the **numeric page id**
@@ -240,6 +240,8 @@ proxy handling is required in the tool code. Node 24.18.0 supports
   `--limit` is 1–50).
 - **`ywiki page revision`**: one `GET /v1/pages?slug=…&revision_id=…&fields=content,attributes,last_revision_id`;
   `active_revision` carries the requested revision's author and date.
+- **`ywiki page diff`**: the same two revision reads, then a **local** unified
+  diff (`lib/diff.mjs`); no API endpoint is involved.
 - **`ywiki page comment add`**: `POST /v1/pages/{id}/comments` with
   `{body, inline_text?, parent_id?, thread_id?}`. With `--inline-range`, the
   comment is created first, then the page is edited with the `&[text](id)`

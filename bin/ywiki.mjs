@@ -63,6 +63,7 @@ import {
   revisionOf,
   isCurrentRevision,
 } from "../lib/history.mjs";
+import { unifiedDiff, DIFF_CONTEXT_MAX } from "../lib/diff.mjs";
 
 // ---------------------------------------------------------------------------
 // Argument parsing
@@ -89,6 +90,7 @@ const VALUE_FLAGS = new Set([
   "--status",
   "--order",
   "--ids",
+  "--context",
 ]);
 const BOOL_FLAGS = new Set([
   "--json",
@@ -189,6 +191,7 @@ function resolveCommand(positionals) {
       if (verb === "locate") return { key: "page locate", handler: "locate", args };
       if (verb === "history") return { key: "page history", handler: "history", args };
       if (verb === "revision") return { key: "page revision", handler: "revision", args };
+      if (verb === "diff") return { key: "page diff", handler: "diff", args };
       if (verb === "comments") {
         const sub = args[0];
         if (sub === "add" || sub === "reply" || sub === "delete") {
@@ -213,7 +216,7 @@ function resolveCommand(positionals) {
       if (verb === "append") return { key: "page append", handler: "append", args };
       if (verb === "delete") return { key: "page delete", handler: "delete", args };
       throw new UsageError(
-        `page: неизвестная подкоманда «${verb ?? ""}» (get|search|descendants|locate|history|revision|comments|comment|create|edit|append|delete)`,
+        `page: неизвестная подкоманда «${verb ?? ""}» (get|search|descendants|locate|history|revision|diff|comments|comment|create|edit|append|delete)`,
       );
     }
     case "space": {
@@ -934,6 +937,49 @@ async function cmdRevision(opts, slug, revisionArg) {
   out(opts, payload, human);
 }
 
+async function cmdDiff(opts, slug, fromArg, toArg) {
+  if (!slug) throw new UsageError("page diff: укажите slug");
+  if (!fromArg || !toArg) throw new UsageError("page diff: укажите две ревизии — <from> <to>");
+  const from = parseId(fromArg, "page diff");
+  const to = parseId(toArg, "page diff");
+  const context = intOpt(opts, "--context", 3);
+  if (context > DIFF_CONTEXT_MAX) {
+    throw new UsageError(`--context: допустимо 0–${DIFF_CONTEXT_MAX}`);
+  }
+  const client = makeClient(opts);
+  const fields = "content,last_revision_id";
+  const load = (revision) =>
+    client.request(
+      `/pages?slug=${encodeSlug(slug)}&revision_id=${revision}&fields=${encodeURIComponent(fields)}`,
+    );
+  const [left, right] = await Promise.all([load(from), load(to)]);
+  const d = unifiedDiff(
+    typeof left.content === "string" ? left.content : "",
+    typeof right.content === "string" ? right.content : "",
+    { context, labelFrom: `${slug} revision ${from}`, labelTo: `${slug} revision ${to}` },
+  );
+  const payload = {
+    slug: left.slug ?? slug,
+    id: left.id ?? right.id ?? null,
+    from_revision_id: from,
+    to_revision_id: to,
+    from: revisionOf(left),
+    to: revisionOf(right),
+    changed: d.changed,
+    added: d.added,
+    removed: d.removed,
+    hunks: d.hunks,
+    coarse: d.coarse,
+    patch: d.patch,
+  };
+  const human = (p) => {
+    if (!p.changed) return `Ревизии ${p.from_revision_id} и ${p.to_revision_id} совпадают.`;
+    if (!p.coarse) return p.patch;
+    return `${p.patch}\n(грубое сравнение: объём превысил лимит построчного diff)`;
+  };
+  out(opts, payload, human);
+}
+
 async function cmdSpaces(opts) {
   const client = makeClient(opts);
   const fetchPage = (cur) => client.request("/spaces" + (cur === undefined ? "" : `?cursor=${cur}`));
@@ -1263,6 +1309,9 @@ async function main() {
       break;
     case "revision":
       await cmdRevision(opts, resolved.args[0], resolved.args[1]);
+      break;
+    case "diff":
+      await cmdDiff(opts, resolved.args[0], resolved.args[1], resolved.args[2]);
       break;
     case "create":
       await cmdCreate(opts, resolved.args[0]);

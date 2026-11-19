@@ -17,7 +17,7 @@ way. This file records the mapping and the intentional differences.
 
 | Aspect | the legacy CLI | ywiki |
 |---|---|---|
-| Commands | grouped (`issue view`, `queue list`) | `page get/search/descendants/locate/history/revision/comments`, `page comment list`, `space list` + shortcuts `get/search/tree/spaces`; writes: `page create/edit/append/delete`, `page comment add/reply/delete` |
+| Commands | grouped (`issue view`, `queue list`) | `page get/search/descendants/locate/history/revision/diff/comments`, `page comment list`, `space list` + shortcuts `get/search/tree/spaces`; writes: `page create/edit/append/delete`, `page comment add/reply/delete` |
 | Default output | JSON when piped, ANSI on TTY | same (`--json` / `--rich-ui=yes\|no`) |
 | Help | `$ cmd` example + annotation, `Usage`/`Commands`/`Options` | same |
 | Errors | `Error: <Title>` / detail / `Next:` | same |

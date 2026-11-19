@@ -1,6 +1,6 @@
 {
   "name": "ywiki",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "CLI for Yandex Wiki (reads by default; explicit page and comment writes), reusing the existing legacy IAM credential.",
   "type": "module",
   "bin": {

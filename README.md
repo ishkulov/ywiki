@@ -40,6 +40,7 @@ ywiki page descendants <slug> [--limit N] [--all] [--cursor N]
 ywiki page locate <slug> <query> [--limit N]      # ranges for --inline-range
 ywiki page history <slug> [--limit N] [--all] [--ids a,b]   # revisions, newest first
 ywiki page revision <slug> <id> [--offset N] [--limit N]    # read one revision
+ywiki page diff <slug> <from> <to> [--context N]            # compare revisions
 ywiki page comments <slug> [--limit N] [--all]    # alias of page comment list
 ywiki page comment list <slug> [--thread ID] [--inline|--page-level] \
                                 [--status resolved|unresolved] [--order asc|desc]
@@ -56,6 +57,7 @@ Shortcuts: `get <slug>` · `search <query>` · `tree <slug>` · `spaces`.
 ```bash
 ywiki page history <slug> [--limit N] [--all] [--cursor C] [--ids a,b]
 ywiki page revision <slug> <revision-id> [--offset N] [--limit N]
+ywiki page diff <slug> <from-revision> <to-revision> [--context N]
 ```
 
 - `page history` lists revisions newest first and marks the current one
@@ -63,7 +65,11 @@ ywiki page revision <slug> <revision-id> [--offset N] [--limit N]
   so `--all` follows `next_cursor` until exhausted.
 - `page revision` reads one revision's content, clipped like `page get`
   (`--offset` continues a long page). An unknown revision id exits `5`.
-- Both are reads: they never change the page or its revision.
+- `page diff` compares two revisions locally (the API has no diff endpoint) and
+  prints a unified diff; `--context` is the number of unchanged lines around
+  each hunk (0–50, default 3). JSON carries `added`/`removed`/`hunks`, the
+  `patch`, and `coarse` when a huge page falls back to a block comparison.
+- All three are reads: they never change the page or its revision.
 
 ### Writing
 

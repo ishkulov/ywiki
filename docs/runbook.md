@@ -37,14 +37,19 @@ ywiki search "<term>"      # shortcuts: get / search / tree / spaces
 ywiki page history <slug> --limit 20       # newest first; --all pages the rest
 ywiki page history <slug> --ids 123,456    # only these revisions
 ywiki page revision <slug> 123             # content of one revision
+ywiki page diff <slug> 122 123             # unified diff, 3 lines of context
+ywiki page diff <slug> 122 123 --context 0 # only changed lines
 ```
 
 - `--limit` is the API `page_size` (1–50); the revisions cursor is a **string**,
   so `--cursor` takes a `next_cursor` value verbatim.
 - `page revision` clips long content exactly like `page get`; continue with
   `--offset N`.
-- History is read-only. There is no diff/restore subcommand: compare by reading
-  two revisions; restore by `page edit --file …` with the old content.
+- `page diff` compares locally (no diff endpoint in the API) with `--context`
+  0–50 (default 3). A very large page falls back to a block comparison and the
+  JSON says `coarse: true`.
+- History is read-only. To restore an old revision, `page edit --file …` with
+  its content (there is no restore subcommand).
 
 ### Editing pages
 
