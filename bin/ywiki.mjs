@@ -217,13 +217,16 @@ async function cmdWhoami(opts) {
     credentialAgeHours: ageMs === null ? null : Number((ageMs / 3600000).toFixed(1)),
     token: tok,
   };
+  // Rich form mirrors the legacy CLI's `✓ Authenticated as …` block.
   const human = (p) => [
-    `login:      ${p.identity.login}`,
-    `scheme:     ${p.scheme}`,
-    `org:        ${p.organizationId}`,
-    `credential: ${p.credential}`,
-    `возраст:    ${ageH}`,
-    `token:      ${p.token}`,
+    `✓ Authenticated as ${p.identity.login}`,
+    `  Contour: ${p.contour ?? "legacy"}`,
+    `  Credential source: ${p.credentialSource}`,
+    `  Credential scheme: ${p.scheme}`,
+    `  Organization: ${p.organizationId} (${p.organizationKind})`,
+    `  Credential file: ${p.credential}`,
+    `  Age: ${ageH}`,
+    `  Token: ${p.token}`,
   ].join("\n");
   out(opts, payload, human);
 }
