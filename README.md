@@ -4,9 +4,7 @@ CLI for **Yandex Wiki**, for people and agents. It owns its credential
 (`~/.config/ywiki/credentials.toml`, schema v2) and its auth flow; refresh is
 lazy and handled internally.
 
-Reads are the default. Writes are explicit and confined to
-`page create|edit|append|delete` and `page comment add|reply|delete` — there are
-no write shortcuts, so a single permission rule can gate the whole write surface.
+Read commands never change Wiki; writes use explicit `page …` subcommands.
 
 Zero runtime dependencies. Node.js ≥ 20 (ESM, `.mjs`).
 
