@@ -234,3 +234,57 @@ test("refresh failure surfaces unauthenticated", async () => {
   const e = await capture(() => c.request("/spaces"));
   assert.equal(e.kind, "unauthenticated");
 });
+
+// --- mutations -------------------------------------------------------------
+
+test("a mutating request is never cached", async () => {
+  const { c, calls } = client([
+    { status: 200, body: '{"id":1}' },
+    { status: 200, body: '{"id":2}' },
+  ]);
+  assert.deepEqual(await c.request("/pages/1", { method: "POST", body: { title: "a" } }), { id: 1 });
+  assert.deepEqual(await c.request("/pages/1", { method: "POST", body: { title: "a" } }), { id: 2 });
+  assert.equal(calls.length, 2);
+});
+
+test("a mutating request is not retried after 5xx", async () => {
+  const { c, calls } = client([{ status: 503, body: '{"error_code":"UNAVAILABLE"}' }]);
+  const e = await capture(() => c.request("/pages/1", { method: "POST", body: { title: "a" } }));
+  assert.equal(e.kind, "unavailable");
+  assert.match(e.message, /не повторяется/);
+  assert.equal(calls.length, 1);
+});
+
+test("a mutating request is not retried after a network error", async () => {
+  const { c, calls } = client([new Error("ECONNRESET")]);
+  const e = await capture(() => c.request("/pages/1", { method: "DELETE" }));
+  assert.equal(e.kind, "unavailable");
+  assert.equal(calls.length, 1);
+});
+
+test("a successful write clears cached reads", async () => {
+  const { c, calls } = client([
+    { status: 200, body: '{"title":"before"}' },
+    { status: 200, body: '{"id":1}' },
+    { status: 200, body: '{"title":"after"}' },
+  ]);
+  assert.deepEqual(await c.request("/pages?slug=x"), { title: "before" });
+  await c.request("/pages/1", { method: "POST", body: { title: "after" } });
+  assert.deepEqual(await c.request("/pages?slug=x"), { title: "after" });
+  assert.equal(calls.length, 3);
+});
+
+test("a 409 on a write maps to conflict", async () => {
+  const { c } = client([{ status: 409, body: '{"error_code":"CONFLICT"}' }]);
+  const e = await capture(() => c.request("/pages/1", { method: "POST", body: { revision: "1" } }));
+  assert.equal(e.kind, "conflict");
+});
+
+test("a 400 VALIDATION_ERROR maps to usage with a redacted detail", async () => {
+  const { c } = client([
+    { status: 400, body: JSON.stringify({ error_code: "VALIDATION_ERROR", debug_message: "title must not be empty" }) },
+  ]);
+  const e = await capture(() => c.request("/pages/1", { method: "POST", body: {} }));
+  assert.equal(e.kind, "usage");
+  assert.match(e.message, /title must not be empty/);
+});

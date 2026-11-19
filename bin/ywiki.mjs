@@ -6,6 +6,9 @@
 // from the credential file by lib/credentials.mjs, never passed via argv, and
 // is masked everywhere it could appear in output.
 
+import { readFileSync } from "node:fs";
+import { createInterface } from "node:readline/promises";
+
 import { credentials, credentialPath, redact, AuthError } from "../lib/credentials.mjs";
 import { createClient } from "../lib/client.mjs";
 import { refreshOnce } from "../lib/refresh.mjs";
@@ -21,10 +24,19 @@ import {
   VERSION,
   EXIT,
   WikiError,
+  UsageError,
 } from "../lib/output.mjs";
-
-/** Error whose `kind` is always `usage`. */
-class UsageError extends Error {}
+import {
+  encodeSlug,
+  resolvePage,
+  assertEditable,
+  revisionFor,
+  summarizeDiff,
+  writeQuery,
+  buildCreateBody,
+  buildEditBody,
+  buildAppendBody,
+} from "../lib/write.mjs";
 
 // ---------------------------------------------------------------------------
 // Argument parsing
@@ -38,8 +50,31 @@ const VALUE_FLAGS = new Set([
   "--timeout",
   "--timeout-ms",
   "--rich-ui",
+  "--file",
+  "--content",
+  "--title",
+  "--if-revision",
+  "--at",
+  "--section",
+  "--anchor",
 ]);
-const BOOL_FLAGS = new Set(["--json", "--no-cache", "--no-input", "--all", "--help", "--version"]);
+const BOOL_FLAGS = new Set([
+  "--json",
+  "--no-cache",
+  "--no-input",
+  "--all",
+  "--help",
+  "--version",
+  "--stdin",
+  "--allow-merge",
+  "--force",
+  "--silent",
+  "--dry-run",
+  "--yes",
+  "--recursive",
+  "--anchor-regex",
+  "--anchor-fallback",
+]);
 /** Short aliases, mirroring the legacy CLI's top-level `-h, --help` / `-v, --version`. */
 const SHORT_ALIASES = { "-h": "--help", "-v": "--version" };
 
@@ -97,14 +132,6 @@ function intOpt(opts, name, def) {
   return n;
 }
 
-/** @param {string} q @returns {string} */
-export function encodeSlug(q) {
-  return String(q)
-    .split("/")
-    .map((seg) => encodeURIComponent(seg))
-    .join("/");
-}
-
 // ---------------------------------------------------------------------------
 // Command resolution (groups + flat shortcuts)
 // ---------------------------------------------------------------------------
@@ -126,7 +153,13 @@ function resolveCommand(positionals) {
       if (verb === "search") return { key: "page search", handler: "search", args };
       if (verb === "descendants") return { key: "page descendants", handler: "descendants", args };
       if (verb === "comments") return { key: "page comments", handler: "comments", args };
-      throw new UsageError(`page: неизвестная подкоманда «${verb ?? ""}» (get|search|descendants|comments)`);
+      if (verb === "create") return { key: "page create", handler: "create", args };
+      if (verb === "edit") return { key: "page edit", handler: "edit", args };
+      if (verb === "append") return { key: "page append", handler: "append", args };
+      if (verb === "delete") return { key: "page delete", handler: "delete", args };
+      throw new UsageError(
+        `page: неизвестная подкоманда «${verb ?? ""}» (get|search|descendants|comments|create|edit|append|delete)`,
+      );
     }
     case "space": {
       const verb = rest[0];
@@ -154,17 +187,82 @@ function resolveCommand(positionals) {
 // Client + pagination helpers
 // ---------------------------------------------------------------------------
 
+function timeoutFrom(opts) {
+  if ("--timeout-ms" in opts) return intOpt(opts, "--timeout-ms", undefined);
+  const seconds = intOpt(opts, "--timeout", undefined);
+  return seconds === undefined ? undefined : seconds * 1000;
+}
+
 function makeClient(opts) {
-  const timeoutMs = "--timeout-ms" in opts
-    ? intOpt(opts, "--timeout-ms", undefined)
-    : intOpt(opts, "--timeout", undefined) === undefined
-      ? undefined
-      : intOpt(opts, "--timeout", undefined) * 1000;
   return createClient({
     noCache: Boolean(opts["--no-cache"]),
-    timeoutMs,
+    timeoutMs: timeoutFrom(opts),
     refresh: () => refreshOnce({}),
   });
+}
+
+/**
+ * Client for a write: the disk cache is bypassed so the content and revision we
+ * base the change on are fresh. The client clears the cache after a write.
+ */
+function makeWriteClient(opts) {
+  return createClient({
+    noCache: true,
+    timeoutMs: timeoutFrom(opts),
+    refresh: () => refreshOnce({}),
+  });
+}
+
+const CONTENT_FLAGS = ["--file", "--content", "--stdin"];
+
+/** @param {string} label */
+async function readStdin(label) {
+  if (process.stdin.isTTY) throw new UsageError(`${label}: --stdin требует перенаправленный поток`);
+  const chunks = [];
+  for await (const chunk of process.stdin) chunks.push(chunk);
+  return Buffer.concat(chunks).toString("utf8");
+}
+
+/**
+ * Resolve the single content source: `--file`, `--stdin` or `--content`.
+ * `--content ""` is meaningful (it clears the page), so presence is tested
+ * with `in` rather than by truthiness.
+ * @param {Record<string, any>} opts
+ * @param {{ required?: boolean, label?: string }} [cfg]
+ * @returns {Promise<string | undefined>}
+ */
+async function contentFrom(opts, cfg = {}) {
+  const { required = false, label = "команда" } = cfg;
+  const used = CONTENT_FLAGS.filter((f) => f in opts);
+  if (used.length > 1) {
+    throw new UsageError(`${label}: укажите ровно один источник — --file, --stdin или --content`);
+  }
+  if (!used.length) {
+    if (required) throw new UsageError(`${label}: нужен контент — --file, --stdin или --content`);
+    return undefined;
+  }
+  if ("--file" in opts) {
+    try {
+      return readFileSync(String(opts["--file"]), "utf8");
+    } catch (e) {
+      throw new UsageError(
+        `${label}: не удалось прочитать --file «${opts["--file"]}»: ${redact((e && e.code) || (e && e.message) || e)}`,
+      );
+    }
+  }
+  if ("--content" in opts) return String(opts["--content"]);
+  return readStdin(label);
+}
+
+/** @param {string} question @returns {Promise<boolean>} */
+async function confirm(question) {
+  const rl = createInterface({ input: process.stdin, output: process.stderr });
+  try {
+    const answer = (await rl.question(question)).trim().toLowerCase();
+    return answer === "y" || answer === "yes" || answer === "да";
+  } finally {
+    rl.close();
+  }
 }
 
 /** Print helper: JSON payload or rendered human text (TTY-aware). */
@@ -404,6 +502,202 @@ async function cmdSpaces(opts) {
   out(opts, payload, human);
 }
 
+async function cmdCreate(opts, slug) {
+  const content = await contentFrom(opts, { label: "page create" });
+  const body = buildCreateBody({ slug, title: opts["--title"], content });
+  const contentBytes = content === undefined ? 0 : Buffer.byteLength(content);
+  if (opts["--dry-run"]) {
+    const payload = {
+      dry_run: true,
+      action: "create",
+      slug: body.slug,
+      title: body.title,
+      content_bytes: contentBytes,
+      silent: Boolean(opts["--silent"]),
+    };
+    out(opts, payload, (p) => `dry-run: создать «${p.slug}» — «${p.title}», ${p.content_bytes} байт`);
+    return;
+  }
+  const client = makeWriteClient(opts);
+  const page = await client.request(
+    "/pages" + writeQuery({ fields: "last_revision_id,attributes", silent: Boolean(opts["--silent"]) }),
+    { method: "POST", body },
+  );
+  const payload = {
+    id: page.id ?? null,
+    slug: page.slug ?? body.slug,
+    title: page.title ?? body.title,
+    last_revision_id: page.last_revision_id ?? null,
+    modified_at: page.attributes?.modified_at ?? null,
+  };
+  out(opts, payload, (p) => [
+    `✓ Создана страница ${p.slug} (id ${p.id ?? "?"}, ревизия ${p.last_revision_id ?? "н/д"})`,
+    `  ссылка: ywiki page get ${p.slug}`,
+  ].join("\n"));
+}
+
+async function cmdEdit(opts, slug) {
+  if (!slug) throw new UsageError("page edit: укажите slug");
+  if (!("--title" in opts) && !CONTENT_FLAGS.some((f) => f in opts)) {
+    throw new UsageError("page edit: укажите --file/--stdin/--content или --title");
+  }
+  const content = await contentFrom(opts, { label: "page edit" });
+  const client = makeWriteClient(opts);
+  const page = await resolvePage(client, slug);
+  assertEditable(page, { slug, content });
+  const revision = revisionFor(opts, page);
+  const body = buildEditBody({ content, title: opts["--title"], revision });
+  const before = typeof page.content === "string" ? page.content : "";
+  const diff = content === undefined ? null : summarizeDiff(before, content);
+
+  if (opts["--dry-run"]) {
+    const payload = {
+      dry_run: true,
+      action: "edit",
+      slug,
+      id: page.id,
+      title: body.title ?? page.title ?? null,
+      revision: revision ?? null,
+      changed: diff ? diff.changed : null,
+      added: diff ? diff.added : null,
+      removed: diff ? diff.removed : null,
+      first_changed_line: diff ? diff.first_changed_line : null,
+      bytes_before: diff ? diff.bytes_before : null,
+      bytes_after: diff ? diff.bytes_after : null,
+    };
+    out(opts, payload, (p) => {
+      const head = `dry-run: изменить ${p.slug} (id ${p.id}, revision ${p.revision ?? "не отправляется"})`;
+      if (!diff) return `${head}\n  будет изменён только заголовок → «${p.title}»`;
+      return `${head}\n  строк: +${diff.added}/-${diff.removed} с ${diff.first_changed_line}; байт: ${diff.bytes_before} → ${diff.bytes_after}`;
+    });
+    return;
+  }
+
+  const res = await client.request(
+    `/pages/${encodeURIComponent(String(page.id))}` +
+      writeQuery({
+        fields: "last_revision_id,attributes",
+        silent: Boolean(opts["--silent"]),
+        allowMerge: Boolean(opts["--allow-merge"]),
+      }),
+    { method: "POST", body },
+  );
+  const payload = {
+    id: res.id ?? page.id,
+    slug: res.slug ?? slug,
+    title: res.title ?? body.title ?? page.title ?? null,
+    revision_before: revision ?? null,
+    last_revision_id: res.last_revision_id ?? null,
+    modified_at: res.attributes?.modified_at ?? null,
+    changed: diff ? diff.changed : null,
+    bytes_before: diff ? diff.bytes_before : null,
+    bytes_after: diff ? diff.bytes_after : null,
+  };
+  out(opts, payload, (p) => {
+    const head = `✓ Обновлено: ${p.slug} (id ${p.id}, ревизия ${p.last_revision_id ?? "н/д"})`;
+    if (!diff) return `${head}\n  заголовок → «${p.title}»`;
+    return `${head}\n  строк: +${diff.added}/-${diff.removed}; байт: ${diff.bytes_before} → ${diff.bytes_after}`;
+  });
+}
+
+async function cmdAppend(opts, slug) {
+  if (!slug) throw new UsageError("page append: укажите slug");
+  const content = await contentFrom(opts, { required: true, label: "page append" });
+  const sectionId = "--section" in opts ? intOpt(opts, "--section", undefined) : undefined;
+  const client = makeWriteClient(opts);
+  const page = await resolvePage(client, slug, { fields: "attributes,last_revision_id,page_type" });
+  assertEditable(page, { slug, content });
+  const revision = revisionFor(opts, page);
+  const body = buildAppendBody({
+    content,
+    revision,
+    at: typeof opts["--at"] === "string" ? opts["--at"] : undefined,
+    sectionId,
+    anchorName: typeof opts["--anchor"] === "string" ? opts["--anchor"] : undefined,
+    anchorFallback: Boolean(opts["--anchor-fallback"]),
+    anchorRegex: Boolean(opts["--anchor-regex"]),
+  });
+  const addedBytes = Buffer.byteLength(String(content));
+
+  if (opts["--dry-run"]) {
+    const payload = {
+      dry_run: true,
+      action: "append",
+      slug,
+      id: page.id,
+      revision: revision ?? null,
+      body: body.body ?? null,
+      section: body.section ?? null,
+      anchor: body.anchor ?? null,
+      added_bytes: addedBytes,
+    };
+    out(opts, payload, (p) => {
+      const place = p.anchor
+        ? `после якоря «${p.anchor.name}»`
+        : p.section
+          ? `в раздел ${p.section.id} (${p.section.location})`
+          : `${p.body?.location === "top" ? "в начало" : "в конец"}`;
+      return `dry-run: дописать ${p.slug} ${place}, ${p.added_bytes} байт (revision ${p.revision ?? "не отправляется"})`;
+    });
+    return;
+  }
+
+  const res = await client.request(
+    `/pages/${encodeURIComponent(String(page.id))}/append-content` +
+      writeQuery({ fields: "last_revision_id,attributes", silent: Boolean(opts["--silent"]) }),
+    { method: "POST", body },
+  );
+  const payload = {
+    id: res.id ?? page.id,
+    slug: res.slug ?? slug,
+    title: res.title ?? page.title ?? null,
+    revision_before: revision ?? null,
+    last_revision_id: res.last_revision_id ?? null,
+    modified_at: res.attributes?.modified_at ?? null,
+    added_bytes: addedBytes,
+  };
+  out(opts, payload, (p) => `✓ Дописано в ${p.slug} (id ${p.id}, ревизия ${p.last_revision_id ?? "н/д"}, +${p.added_bytes} байт)`);
+}
+
+async function cmdDelete(opts, slug) {
+  if (!slug) throw new UsageError("page delete: укажите slug");
+  const client = makeWriteClient(opts);
+  const page = await resolvePage(client, slug, { fields: "attributes,last_revision_id,page_type" });
+  const recursive = Boolean(opts["--recursive"]);
+
+  if (opts["--dry-run"]) {
+    const payload = { dry_run: true, action: "delete", slug, id: page.id, title: page.title ?? null, recursive };
+    out(opts, payload, (p) => `dry-run: удалить «${p.slug}» (id ${p.id})${p.recursive ? " со всеми подстраницами" : ""}`);
+    return;
+  }
+
+  if (!opts["--yes"]) {
+    if (opts["--no-input"] || !process.stdin.isTTY) {
+      throw new UsageError("page delete: нужно явное подтверждение — используйте --yes (или --dry-run)");
+    }
+    const ok = await confirm(
+      `Удалить «${slug}»${page.title ? ` (${page.title})` : ""}${recursive ? " со всеми подстраницами" : ""}? [y/N] `,
+    );
+    if (!ok) throw new UsageError("page delete: отменено");
+  }
+
+  const res = await client.request(
+    `/pages/${encodeURIComponent(String(page.id))}` + (recursive ? "?recursive=true" : ""),
+    { method: "DELETE" },
+  );
+  const payload = {
+    id: page.id,
+    slug,
+    title: page.title ?? null,
+    recovery_token: res?.recovery_token ?? null,
+  };
+  out(opts, payload, (p) => [
+    `✓ Удалена страница ${p.slug} (id ${p.id})`,
+    `  recovery_token: ${p.recovery_token ?? "н/д"}`,
+    "  восстановление: POST /v1/recovery_tokens/<token>/recover",
+  ].join("\n"));
+}
+
 /** Read-only passthrough restricted to the confirmed API surface. */
 const API_ALLOWED = ["pages", "spaces", "users/me", "search"];
 
@@ -496,6 +790,18 @@ async function main() {
       break;
     case "comments":
       await cmdComments(opts, resolved.args[0]);
+      break;
+    case "create":
+      await cmdCreate(opts, resolved.args[0]);
+      break;
+    case "edit":
+      await cmdEdit(opts, resolved.args[0]);
+      break;
+    case "append":
+      await cmdAppend(opts, resolved.args[0]);
+      break;
+    case "delete":
+      await cmdDelete(opts, resolved.args[0]);
       break;
     case "spaces":
       await cmdSpaces(opts);

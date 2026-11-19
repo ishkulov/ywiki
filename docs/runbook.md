@@ -1,9 +1,9 @@
-# Runbook: `ywiki` — read-only Yandex Wiki access
+# Runbook: `ywiki` — Yandex Wiki access
 
-`ywiki` is a zero-dependency Node CLI for reading Yandex Wiki. It reuses the
-**existing** legacy IAM credential and the **existing** `the legacy refresh helper` timer; it
-does not create a second credential, timer, or token source, and it never writes
-to Wiki.
+`ywiki` is a zero-dependency Node CLI for Yandex Wiki. It reuses the **existing**
+legacy IAM credential and the **existing** `the legacy refresh helper` timer; it does not create
+a second credential, timer, or token source. Reads are the default; mutations go
+only through the four explicit `page create|edit|append|delete` commands.
 
 ## Install
 
@@ -25,6 +25,25 @@ ywiki page comments <slug>     # list top-level comments
 ywiki space list           # list spaces
 ywiki search "<term>"      # shortcuts: get / search / tree / spaces
 ```
+
+### Editing pages
+
+```bash
+ywiki page create <slug> --title "…" --file page.md
+ywiki page edit <slug> --file page.md           # replaces the content
+ywiki page append <slug> --file add.md --at bottom
+ywiki page delete <slug> --yes                  # prints recovery_token
+```
+
+- Pass the new text explicitly (`--file`, `--stdin`, `--content`); no `$EDITOR`.
+- `--dry-run` prints what would be sent (a diff for `edit`) and sends nothing.
+- `--if-revision N` pins the base revision; `--force` omits it (last-write-wins).
+- Read-only pages are refused (exit 4); `grid`/`cloud_page` content edits are
+  refused (exit 2).
+- Writes are **not** retried. A timeout or `5xx` means the outcome is unknown:
+  re-read the page (`ywiki page get <slug>`) before retrying.
+- `page delete` prints a `recovery_token`; restore with
+  `POST /v1/recovery_tokens/<token>/recover` (not exposed as a subcommand yet).
 
 Output is JSON when stdout is not a terminal (agents, pipes, CI) and rich text
 on a terminal; `--json` / `--rich-ui=yes|no` override.
@@ -59,7 +78,10 @@ systemctl --user status the legacy refresh helper.timer --no-pager   # timer sta
 - Exit `3` with a fresh credential → check the timer; it may have failed.
 - Exit `4` → the signed-in user genuinely lacks access; do not retry, ask the
   page owner.
-- Exit `6` → the search index is warming up (`ALREADY_INDEXING`); retry shortly.
+- Exit `6` → version conflict or index warming up (`ALREADY_INDEXING`); for a
+  write, re-read the page and retry; for a search, retry shortly.
+- Exit `8` after a write → the request may have been applied; re-read the page
+  before retrying. Writes are never replayed automatically.
 - Cache lives in `~/.cache/legacy/wiki/` (TTL 60 s; `WIKI_NO_CACHE=1` disables it;
   `WIKI_CACHE_DIR` relocates it).
 

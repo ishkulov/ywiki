@@ -1,14 +1,21 @@
 # AGENTS.md
 
-`ywiki` is a read-only, zero-dependency Node CLI for Yandex Wiki. Install and
-usage live in [`README.md`](README.md); this file holds the rules that keep the
-tool read-only, dependency-free, and token-safe.
+`ywiki` is a zero-dependency Node CLI for Yandex Wiki. Install and usage live in
+[`README.md`](README.md); this file holds the rules that keep the tool
+dependency-free, token-safe, and read-only by default.
 
 ## Hard rules
 
-- **Read-only by semantics.** Every subcommand reads; the only non-GET call is
-  `POST /search`. A subcommand that changes Wiki state is out of scope, not a
-  feature.
+- **Reads by default; writes are explicit.** Reads live under `page get|search|
+  descendants|comments`, `space list`, and the flat shortcuts. Mutations exist
+  only as `page create|edit|append|delete` and have **no** shortcuts: the write
+  surface must stay identifiable by one prefix so a permission rule can gate it.
+  `ywiki api` stays `GET`-only. Do not add a mutating subcommand outside those
+  four verbs.
+- **Writes are never replayed.** A timeout or `5xx` on a mutation means the
+  outcome is unknown: do not auto-retry; tell the caller to re-read the page.
+  A rejected request (`401`) may be retried after refresh, since it has no side
+  effects. Only idempotent reads are cached; a successful write clears the cache.
 - **One credential, one timer.** Reuse `~/.config/legacy/legacy/credentials.toml` and the
   existing `the legacy refresh helper` timer. Never write the credential file, and never
   create a second credential, timer, or token source.
@@ -33,6 +40,7 @@ tool read-only, dependency-free, and token-safe.
 | `lib/credentials.mjs` | credential load, auth headers, `redact()` |
 | `lib/refresh.mjs` | single-flight `the legacy refresh helper --refresh` + cooldown |
 | `lib/client.mjs` | HTTP, retries, 401 self-heal, disk cache |
+| `lib/write.mjs` | pure helpers for `page create|edit|append|delete` |
 | `lib/output.mjs` | `EXIT` codes, `WikiError`, clipping, usage text |
 | `test/*.test.mjs` | offline tests; fixtures in `test/fixtures/` |
 

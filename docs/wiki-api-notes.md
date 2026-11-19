@@ -1,7 +1,8 @@
-# Yandex Wiki API — confirmed surface
+# Yandex Wiki API — surface notes
 
-Status: **confirmed against the live API** with the existing legacy credential.
-Scope: read-only. No page content is reproduced in this file.
+Status: **read endpoints confirmed against the live API** with the existing legacy
+credential; **write endpoints are documented but NOT live-confirmed** (see §4).
+No page content is reproduced in this file.
 
 Probe environment: Node 24.18.0, token read from
 `~/.config/legacy/legacy/credentials.toml` into process memory only; only HTTP status
@@ -93,7 +94,67 @@ modified_at, show_obsolete}`.
 Response: `results[]{url,slug,title,content,type,modified_at}` where `content`
 is a search **snippet**, plus `next_cursor`, `prev_cursor`.
 
-## 4. Error format
+## 4. Write surface (documented, **not** live-confirmed)
+
+Taken from the official API reference
+(`yandex.ru/support/wiki/ru/api-ref/pages/…`) during the write feature work.
+None of these calls has been exercised against the live API yet: the shape below
+is what `ywiki page create|edit|append|delete` sends, so a first real use is the
+confirmation. Unverified points are marked **?**.
+
+Write requests are user-scoped: the IAM token works only if the signed-in user
+may edit the page; otherwise expect `403`. There is no `wiki:write` scope to
+grant for an IAM token (that is OAuth terminology).
+
+### POST `/v1/pages` — create
+
+Query: `fields`, `is_silent` (bool, default false).
+Body: `slug` (**required**), `title` (**required**, 1–255),
+`content` (optional), `access_policy` (optional).
+Response: page schema (same as `GET /v1/pages`).
+
+### POST `/v1/pages/{idx}` — update (POST, not PUT/PATCH)
+
+Query: `allow_merge` (bool, default **false** — concurrent edits are a conflict;
+`true` = 3-way merge), `is_silent`, `fields`.
+Body: `title`, `content`, `revision`, `redirect`, `access_policy`, `owner`,
+`actuality` (all optional).
+`revision` is documented as “the page version this change is based on” and is a
+**string** in the schema, while `last_revision_id` is an **integer**. `ywiki`
+sends `String(last_revision_id)`; **?** this equivalence is unverified. The
+status code for a revision mismatch is also **?** (docs say “conflict”; the
+client maps both `409` and `400` to `conflict`).
+Response: page schema; `content` only when requested via `fields=content`.
+
+### POST `/v1/pages/{idx}/append-content` — append
+
+Query: `fields`, `is_silent`.
+Body: `content` (**required**, min length 1), `revision` (string), and exactly
+**one** of:
+- `body: {location: "top"|"bottom"}` — insert at the start/end of the page;
+- `section: {id, location}` — insert into a page section;
+- `anchor: {name, fallback, regex}` — insert after an anchor; `fallback=true`
+  appends to the end when the anchor is missing.
+Response: page schema.
+
+### DELETE `/v1/pages/{idx}` — delete
+
+Query: `recursive` (bool, default false — delete sub-pages too).
+Response: `{recovery_token}`; restore with
+`POST /v1/recovery_tokens/{recovery_token}/recover` (**?** not implemented in
+`ywiki` yet).
+
+### Safety notes
+
+- A cheap permission probe (documented by third-party clients) is
+  `POST /v1/pages/{id}` with body `{}`: `400 VALIDATION_ERROR` means write access
+  is present, `403` means it is not. Not used by `ywiki`.
+- Collaborative pages (`attributes.is_collaborative`) may produce a draft
+  revision instead of publishing; **?** unverified.
+- `ywiki --force` omits `revision` (last-write-wins) as an escape hatch while
+  the `revision` semantics remain unconfirmed.
+
+## 5. Error format
 
 JSON: `{ "debug_message": str, "details": {...}, "error_code": str }`.
 Observed live: `404 NOT_FOUND` (unknown slug), `400 ALREADY_INDEXING`
@@ -105,7 +166,7 @@ Error taxonomy mapping for the CLI (aligned with `the legacy CLI`, see docs/comp
 `409` / `400 ALREADY_INDEXING` → `conflict` (exit 6);
 `429`/`5xx`/network → `unavailable` (exit 8, bounded retries).
 
-## 5. Runtime / proxy
+## 6. Runtime / proxy
 
 Confirmed reachable **from the the service runtime**, which is where the
 custom tools execute. That process environment carries `HTTP_PROXY`/`HTTPS_PROXY`
@@ -116,7 +177,7 @@ Node's `--use-env-proxy` returned `200`, i.e. the host reaches the API; no speci
 proxy handling is required in the tool code. Node 24.18.0 supports
 `--use-env-proxy` if the network topology ever requires it.
 
-## 6. Consequences for the CLI
+## 7. Consequences for the CLI
 
 - **`ywiki get`**: `GET /v1/pages?slug=…&fields=content,attributes,last_revision_id`.
 - **`ywiki search`**: `POST /v1/search` for full-text search.
@@ -124,10 +185,11 @@ proxy handling is required in the tool code. Node 24.18.0 supports
   Both confirmed 200, so full-text search exists and the tree walk works.
 - **`ywiki page comments`**: resolve the id via `GET /v1/pages?slug=…`, then
   `GET /v1/pages/{id}/comments?page_size=…` for top-level comments.
-
-## 7. Runtime / proxy confirmation
-
-`api.wiki.yandex.net` is reachable from the process runtime; the host is not in
-`NO_PROXY` in the reference setup, but a plain `fetch` returned `200`. No special
-proxy handling is required in the code. Node 24 supports `--use-env-proxy` if a
-network topology ever requires it.
+- **`ywiki page create`**: `POST /v1/pages` with `{slug, title, content?}`.
+- **`ywiki page edit`**: `GET` the page with
+  `fields=content,attributes,last_revision_id,page_type`, then
+  `POST /v1/pages/{id}` with `{content?, title?, revision?}`; `allow_merge` is
+  off by default and `--force` omits `revision`.
+- **`ywiki page append`**: `POST /v1/pages/{id}/append-content` with
+  `{content, revision?, body|section|anchor}`.
+- **`ywiki page delete`**: `DELETE /v1/pages/{id}?recursive=` → `recovery_token`.
