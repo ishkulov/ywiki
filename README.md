@@ -5,8 +5,9 @@ credential (`~/.config/legacy/legacy/credentials.toml`, schema v2) and the
 `the legacy refresh helper` refresh timer — it does **not** create a second credential,
 timer, or token source.
 
-Reads are the default. Mutations are explicit and confined to four commands
-(`page create|edit|append|delete`); there are no write shortcuts.
+Reads are the default. Mutations are explicit and confined to the page and
+comment commands (`page create|edit|append|delete`, `page comment
+add|reply|delete`); there are no write shortcuts.
 
 Zero runtime dependencies. Node.js ≥ 20 (ESM, `.mjs`).
 
@@ -36,7 +37,10 @@ ywiki whoami                        # login, scheme, org, credential age, token 
 ywiki page get <slug> [--offset N] [--limit N] [--fields a,b]
 ywiki page search <query> [--limit N] [--all] [--cursor N]
 ywiki page descendants <slug> [--limit N] [--all] [--cursor N]
-ywiki page comments <slug> [--limit N] [--all]
+ywiki page locate <slug> <query> [--limit N]      # ranges for --inline-range
+ywiki page comments <slug> [--limit N] [--all]    # alias of page comment list
+ywiki page comment list <slug> [--thread ID] [--inline|--page-level] \
+                                [--status resolved|unresolved] [--order asc|desc]
 ywiki space list [--all]
 ywiki api GET <path> [--header "Name: value"]   # read-only passthrough
 ywiki skill                          # bundled agent guidance
@@ -68,6 +72,26 @@ ywiki page delete <slug> [--recursive] [--yes] [--dry-run]
   there is no input; it prints the `recovery_token` needed to restore the page.
 - Read-only pages (`attributes.is_readonly`) are refused (exit 4); content edits
   on `grid`/`cloud_page` pages are refused (exit 2).
+
+### Comments
+
+```bash
+ywiki page comment add    <slug> [text] [--file … | --stdin | --content …] [--dry-run]
+ywiki page comment add    <slug> [text] --inline-range START-END [--dry-run]
+ywiki page comment reply  <slug> <thread-id> [text] [--to ID] [--dry-run]
+ywiki page comment delete <slug> <comment-id> [--yes] [--dry-run]
+```
+
+- `page comment list --thread <id>` lists replies; without `--thread` it lists
+  top-level comments. `--inline` / `--page-level` filter by anchor.
+- `--inline-range START-END` is 0-based and end-exclusive, counted in Unicode
+  code points. Use `page locate` to find ranges. The comment text is the
+  anchored fragment; `inline_text` is metadata.
+- An inline comment is two writes: create the comment, then edit the page with
+  the `&[text](id)` marker. If the page edit fails, the comment is deleted.
+  Deleting an inline comment also removes its marker.
+- `page comment delete` without `--yes` asks for confirmation on a TTY and
+  refuses when there is no input.
 
 Global flags: `--json`, `--rich-ui=yes|no`, `--no-cache`,
 `--timeout-ms N` (alias `--timeout S`), `--no-input`.
@@ -104,7 +128,9 @@ per-read allow rules is enough. In OpenCode, the last matching rule wins:
     { "action": "shell", "resource": "ywiki page get *", "effect": "allow" },
     { "action": "shell", "resource": "ywiki page search *", "effect": "allow" },
     { "action": "shell", "resource": "ywiki page descendants *", "effect": "allow" },
+    { "action": "shell", "resource": "ywiki page locate *", "effect": "allow" },
     { "action": "shell", "resource": "ywiki page comments *", "effect": "allow" },
+    { "action": "shell", "resource": "ywiki page comment list *", "effect": "allow" },
     { "action": "shell", "resource": "ywiki get *", "effect": "allow" },
     { "action": "shell", "resource": "ywiki search *", "effect": "allow" },
     { "action": "shell", "resource": "ywiki tree *", "effect": "allow" },
@@ -158,8 +184,8 @@ npm test
 ## Safety
 
 - Reads are the default. Mutations go only through `ywiki page create|edit|append|delete`
-  (no shortcuts); `ywiki api` stays `GET`-only, so writes cannot slip through a
-  read prefix.
+  and `ywiki page comment add|reply|delete` (no shortcuts); `ywiki api` stays
+  `GET`-only, so writes cannot slip through a read prefix.
 - Writes are never retried automatically: a timeout or `5xx` on a write means the
   outcome is unknown — re-read the page before retrying.
 - Never read the credential file directly and never call the Wiki API with

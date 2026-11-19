@@ -158,6 +158,26 @@ returned in the response. `ywiki` therefore never asks for it.
   revision instead of publishing; not exercised.
 - `ywiki --force` omits `revision` (last-write-wins) as an escape hatch.
 
+### Comments surface (live-confirmed)
+
+- `POST /v1/pages/{id}/comments` — create a comment. Body: `body` (**required**),
+  `inline_text`, `parent_id`, `thread_id`. The response is a comment
+  (`id`, `body`, `inline_text`, `parent_id`, `thread_id`, `created_at`, …).
+- `GET /v1/pages/{id}/comments/{comment_id}/thread` — replies in a thread; the
+  root comment is excluded.
+- `DELETE /v1/pages/{id}/comments/{comment_id}` — delete; returns
+  `{comments_count}`.
+- **Replies:** `parent_id` alone does not attach a reply to a thread. Send both
+  `parent_id` (the comment being answered) and `thread_id` (the root comment).
+  For a top-level reply, set both to the root id.
+- **Inline comments are metadata only.** `inline_text` does not anchor itself;
+  the anchor is the marker `&[text](comment_id)` in the page `content`. Creating
+  a comment with `inline_text` does not change the page or its revision, and the
+  API does not validate the fragment. Creating an inline comment is two writes:
+  create the comment, then edit the page with the marker. Deleting a comment
+  leaves the marker behind; remove it with a page edit. No resolve/unresolve
+  endpoint is documented, so `ywiki` does not offer one.
+
 ## 5. Error format
 
 JSON: `{ "debug_message": str, "details": {...}, "error_code": str }`.
@@ -190,13 +210,25 @@ proxy handling is required in the tool code. Node 24.18.0 supports
 - **`ywiki search`**: `POST /v1/search` for full-text search.
 - **`ywiki tree`**: `GET /v1/pages/descendants?slug=…&page_size=…` for navigation.
   Both confirmed 200, so full-text search exists and the tree walk works.
-- **`ywiki page comments`**: resolve the id via `GET /v1/pages?slug=…`, then
-  `GET /v1/pages/{id}/comments?page_size=…` for top-level comments.
+- **`ywiki page comments` / `page comment list`**: resolve the id via
+  `GET /v1/pages?slug=…`, then `GET /v1/pages/{id}/comments?page_size=…` for
+  top-level comments; `--thread <id>` uses
+  `GET /v1/pages/{id}/comments/{id}/thread`.
+- **`ywiki page locate`**: read the page `content` and search it locally; it
+  returns 0-based, end-exclusive ranges for `--inline-range`.
+- **`ywiki page comment add`**: `POST /v1/pages/{id}/comments` with
+  `{body, inline_text?, parent_id?, thread_id?}`. With `--inline-range`, the
+  comment is created first, then the page is edited with the `&[text](id)`
+  marker; a failed page edit deletes the comment.
+- **`ywiki page comment reply`**: the same POST with `parent_id` and `thread_id`
+  both set.
+- **`ywiki page comment delete`**: `DELETE /v1/pages/{id}/comments/{id}`; for an
+  inline comment, the marker is removed with a page edit.
 - **`ywiki page create`**: `POST /v1/pages` with `{slug, title, content?}`.
 - **`ywiki page edit`**: `GET` the page with
-  `fields=content,attributes,last_revision_id,page_type`, then
-  `POST /v1/pages/{id}` with `{content?, title?, revision?}`; `allow_merge` is
-  off by default and `--force` omits `revision`.
+  `fields=content,attributes,last_revision_id`, then `POST /v1/pages/{id}` with
+  `{content?, title?, revision?}`; `allow_merge` is off by default and `--force`
+  omits `revision`.
 - **`ywiki page append`**: `POST /v1/pages/{id}/append-content` with
   `{content, revision?, body|section|anchor}`.
 - **`ywiki page delete`**: `DELETE /v1/pages/{id}?recursive=` → `recovery_token`.

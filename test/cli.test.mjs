@@ -157,10 +157,14 @@ test("page comments resolves the id and pipes JSON by default", async () => {
   assert.deepEqual(j.results[0], {
     id: 11,
     body: "Первый",
+    inline_text: null,
+    parent_id: null,
+    thread_id: 11,
     author: "alice",
     created_at: "2026-01-01T00:00:00Z",
     resolve_status: "unresolved",
     reply_count: 3,
+    is_deleted: false,
   });
   assert.equal(j.next_cursor, "c2");
 });

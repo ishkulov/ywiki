@@ -3,7 +3,8 @@
 `ywiki` is a zero-dependency Node CLI for Yandex Wiki. It reuses the **existing**
 legacy IAM credential and the **existing** `the legacy refresh helper` timer; it does not create
 a second credential, timer, or token source. Reads are the default; mutations go
-only through the four explicit `page create|edit|append|delete` commands.
+only through the explicit `page create|edit|append|delete` and
+`page comment add|reply|delete` commands.
 
 ## Install
 
@@ -21,7 +22,9 @@ dependencies, no `bun`.
 ywiki page search "<term>" # find pages (JSON when piped; --rich-ui=yes for text)
 ywiki page get <slug>      # read a page (clipped; continue with --offset N)
 ywiki page descendants <slug>  # list sub-pages
-ywiki page comments <slug>     # list top-level comments
+ywiki page locate <slug> "<text>"  # find ranges for inline comments
+ywiki page comments <slug>     # top-level comments (alias of page comment list)
+ywiki page comment list <slug> --thread <id>  # replies in a thread
 ywiki space list           # list spaces
 ywiki search "<term>"      # shortcuts: get / search / tree / spaces
 ```
@@ -44,6 +47,26 @@ ywiki page delete <slug> --yes                  # prints recovery_token
   re-read the page (`ywiki page get <slug>`) before retrying.
 - `page delete` prints a `recovery_token`; restore with
   `POST /v1/recovery_tokens/<token>/recover` (not exposed as a subcommand yet).
+
+### Editing comments
+
+```bash
+ywiki page comment add <slug> "text"                    # page-level
+ywiki page comment add <slug> "text" --inline-range 42-54
+ywiki page comment reply <slug> <thread-id> "text" [--to <comment-id>]
+ywiki page comment delete <slug> <comment-id> --yes
+```
+
+- `--inline-range START-END` is 0-based and end-exclusive, counted in Unicode
+  code points. Use `ywiki page locate <slug> "<text>"` to find a range.
+- An inline comment is two writes: create the comment, then edit the page with
+  the `&[text](id)` marker. If the page edit fails, the comment is deleted; the
+  command reports the rollback. Deleting an inline comment removes its marker.
+- `reply` needs the **root** comment id as `thread-id`; `--to` targets a reply
+  inside that thread. `parent_id` alone does not attach a reply to a thread.
+- Writes are not retried. If a page edit fails after the comment was created,
+  re-read the page and check for the comment before retrying.
+- The API has no resolve/unresolve endpoint; `ywiki` does not expose one.
 
 Output is JSON when stdout is not a terminal (agents, pipes, CI) and rich text
 on a terminal; `--json` / `--rich-ui=yes|no` override.

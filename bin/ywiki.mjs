@@ -37,6 +37,23 @@ import {
   buildEditBody,
   buildAppendBody,
 } from "../lib/write.mjs";
+import {
+  toChars,
+  parseRange,
+  scanMarkers,
+  validateRange,
+  insertMarker,
+  removeMarkers,
+  locateText,
+} from "../lib/inline.mjs";
+import {
+  parseId,
+  buildCommentBody,
+  commentQuery,
+  threadQuery,
+  commentSummary,
+  commentHead,
+} from "../lib/comments.mjs";
 
 // ---------------------------------------------------------------------------
 // Argument parsing
@@ -57,6 +74,11 @@ const VALUE_FLAGS = new Set([
   "--at",
   "--section",
   "--anchor",
+  "--inline-range",
+  "--thread",
+  "--to",
+  "--status",
+  "--order",
 ]);
 const BOOL_FLAGS = new Set([
   "--json",
@@ -74,6 +96,8 @@ const BOOL_FLAGS = new Set([
   "--recursive",
   "--anchor-regex",
   "--anchor-fallback",
+  "--inline",
+  "--page-level",
 ]);
 /** Short aliases, mirroring the legacy CLI's top-level `-h, --help` / `-v, --version`. */
 const SHORT_ALIASES = { "-h": "--help", "-v": "--version" };
@@ -152,13 +176,32 @@ function resolveCommand(positionals) {
       if (verb === "get") return { key: "page get", handler: "get", args };
       if (verb === "search") return { key: "page search", handler: "search", args };
       if (verb === "descendants") return { key: "page descendants", handler: "descendants", args };
-      if (verb === "comments") return { key: "page comments", handler: "comments", args };
+      if (verb === "locate") return { key: "page locate", handler: "locate", args };
+      if (verb === "comments") {
+        const sub = args[0];
+        if (sub === "add" || sub === "reply" || sub === "delete") {
+          throw new UsageError(`page comments: для записи используйте page comment ${sub} …`);
+        }
+        const listArgs = sub === "list" ? args.slice(1) : args;
+        return { key: "page comments", handler: "comments", args: listArgs };
+      }
+      if (verb === "comment") {
+        const sub = args[0];
+        const rest2 = args.slice(1);
+        if (sub === "list") return { key: "page comment list", handler: "commentList", args: rest2 };
+        if (sub === "add") return { key: "page comment add", handler: "commentAdd", args: rest2 };
+        if (sub === "reply") return { key: "page comment reply", handler: "commentReply", args: rest2 };
+        if (sub === "delete") return { key: "page comment delete", handler: "commentDelete", args: rest2 };
+        throw new UsageError(
+          `page comment: неизвестная подкоманда «${sub ?? ""}» (list|add|reply|delete)`,
+        );
+      }
       if (verb === "create") return { key: "page create", handler: "create", args };
       if (verb === "edit") return { key: "page edit", handler: "edit", args };
       if (verb === "append") return { key: "page append", handler: "append", args };
       if (verb === "delete") return { key: "page delete", handler: "delete", args };
       throw new UsageError(
-        `page: неизвестная подкоманда «${verb ?? ""}» (get|search|descendants|comments|create|edit|append|delete)`,
+        `page: неизвестная подкоманда «${verb ?? ""}» (get|search|descendants|locate|comments|comment|create|edit|append|delete)`,
       );
     }
     case "space": {
@@ -254,6 +297,27 @@ async function contentFrom(opts, cfg = {}) {
   return readStdin(label);
 }
 
+/**
+ * Comment text: positional words, or exactly one of `--file`/`--stdin`/`--content`.
+ * @param {Record<string, any>} opts
+ * @param {string[]} parts
+ * @param {string} label
+ * @returns {Promise<string>}
+ */
+async function commentTextFrom(opts, parts, label) {
+  const used = CONTENT_FLAGS.filter((f) => f in opts);
+  if (used.length > 1) {
+    throw new UsageError(`${label}: укажите ровно один источник — --file, --stdin или --content`);
+  }
+  const positional = parts.join(" ").trim();
+  if (used.length && positional) {
+    throw new UsageError(`${label}: текст уже задан флагом; не дублируйте его позиционно`);
+  }
+  if (used.length) return String(await contentFrom(opts, { required: true, label }));
+  if (positional) return positional;
+  throw new UsageError(`${label}: нужен текст комментария (позиционно или --file/--stdin/--content)`);
+}
+
 /** @param {string} question @returns {Promise<boolean>} */
 async function confirm(question) {
   const rl = createInterface({ input: process.stdin, output: process.stderr });
@@ -280,10 +344,10 @@ function line(s = "") {
  * @param {(cursor: number | undefined) => Promise<any>} fetchPage
  * @param {number} [maxPages]
  */
-async function collectAll(fetchPage, maxPages = 100) {
+async function collectAll(fetchPage, maxPages = 100, initialCursor = undefined) {
   /** @type {any[]} */
   const results = [];
-  let cursor;
+  let cursor = initialCursor;
   for (let i = 0; i < maxPages; i++) {
     const page = await fetchPage(cursor);
     if (Array.isArray(page.results)) results.push(...page.results);
@@ -431,53 +495,343 @@ async function cmdDescendants(opts, slug) {
   out(opts, payload, human);
 }
 
-async function cmdComments(opts, slug) {
-  if (!slug) throw new UsageError("page comments: укажите slug");
-  const client = makeClient(opts);
+async function cmdCommentList(opts, slug) {
+  if (!slug) throw new UsageError("page comment list: укажите slug");
+  if (opts["--inline"] && opts["--page-level"]) {
+    throw new UsageError("--inline и --page-level взаимоисключающие");
+  }
+  const threadId = "--thread" in opts ? intOpt(opts, "--thread", undefined) : undefined;
   const pageSize = intOpt(opts, "--limit", undefined);
-  const meta = await client.request(`/pages?slug=${encodeSlug(slug)}`);
-  const id = meta.id;
-  if (id === undefined || id === null) throw new WikiError("not_found", `страница «${slug}» без id`);
+  const cursor = typeof opts["--cursor"] === "string" ? opts["--cursor"] : undefined;
+  const status = typeof opts["--status"] === "string" ? opts["--status"] : undefined;
+  const order = typeof opts["--order"] === "string" ? opts["--order"] : undefined;
+  if (status !== undefined && !["resolved", "unresolved"].includes(status)) {
+    throw new UsageError("--status: допустимо resolved|unresolved");
+  }
+  if (order !== undefined && !["asc", "desc"].includes(order)) {
+    throw new UsageError("--order: допустимо asc|desc");
+  }
+
+  const client = makeClient(opts);
+  const page = await resolvePage(client, slug, { fields: "attributes" });
+  const base =
+    `/pages/${encodeURIComponent(String(page.id))}/comments` +
+    (threadId === undefined ? "" : `/${encodeURIComponent(String(threadId))}/thread`);
   const queryOf = (cur) =>
-    `/pages/${encodeURIComponent(String(id))}/comments` +
-    (pageSize === undefined ? "" : `?page_size=${pageSize}`) +
-    (cur === undefined ? "" : `${pageSize === undefined ? "?" : "&"}cursor=${encodeURIComponent(cur)}`);
+    base +
+    (threadId === undefined
+      ? commentQuery({ pageSize, cursor: cur ?? cursor, status, order })
+      : threadQuery({ pageSize, cursor: cur ?? cursor, order }));
   const fetchPage = (cur) => client.request(queryOf(cur));
 
   let results;
   let nextCursor = null;
   if (opts["--all"]) {
-    ({ results, nextCursor } = await collectAll(fetchPage));
+    ({ results, nextCursor } = await collectAll(fetchPage, 100, cursor));
   } else {
-    const res = await fetchPage(undefined);
+    const res = await fetchPage(cursor);
     results = Array.isArray(res.results) ? res.results : [];
     nextCursor = res.next_cursor ?? null;
   }
 
+  if (opts["--inline"]) results = results.filter((c) => c.inline_text);
+  if (opts["--page-level"]) results = results.filter((c) => !c.inline_text);
+
   const payload = {
     slug,
-    id,
-    results: results.map((c) => ({
-      id: c.id,
-      body: c.body,
-      author: c.author?.username ?? null,
-      created_at: c.created_at ?? null,
-      resolve_status: c.resolve_status ?? null,
-      reply_count: c.thread_info?.total_posts ?? 0,
-    })),
+    id: page.id,
+    thread: threadId ?? null,
+    results: results.map(commentSummary),
     next_cursor: nextCursor,
   };
   const human = () => {
     if (!results.length) {
-      return `Комментариев нет для «${slug}».\nПодсказка: проверьте slug или используйте \`ywiki search\`.`;
+      return threadId === undefined
+        ? `Комментариев нет для «${slug}».\nПодсказка: проверьте slug или используйте \`ywiki search\`.`
+        : `В ветке #${threadId} нет ответов.`;
     }
-    return results
-      .map((c) => {
-        const n = c.thread_info?.total_posts ?? 0;
-        const head = `#${c.id} ${c.author?.username ?? "?"} ${c.created_at ?? ""} [${c.resolve_status ?? "?"}]${n ? ` (+${n} ответов)` : ""}`;
-        return `${head}\n${c.body ?? ""}`;
-      })
-      .join("\n\n");
+    return results.map((c) => `${commentHead(c)}\n${c.body ?? ""}`).join("\n\n");
+  };
+  out(opts, payload, human);
+}
+
+async function cmdCommentAdd(opts, slug, textParts) {
+  if (!slug) throw new UsageError("page comment add: укажите slug");
+  const bodyText = await commentTextFrom(opts, textParts, "page comment add");
+  const inlineRange = "--inline-range" in opts ? String(opts["--inline-range"]) : undefined;
+  const client = makeWriteClient(opts);
+  const page = await resolvePage(client, slug);
+  if (page.attributes?.is_readonly) {
+    throw new WikiError("access_denied", `страница «${slug}» доступна только для чтения`);
+  }
+
+  if (inlineRange === undefined) {
+    const body = buildCommentBody({ body: bodyText });
+    if (opts["--dry-run"]) {
+      const payload = {
+        dry_run: true,
+        action: "comment add",
+        slug,
+        id: page.id,
+        body: bodyText,
+        inline_text: null,
+        inline_range: null,
+      };
+      out(opts, payload, (p) => `dry-run: добавить комментарий к «${p.slug}» (id ${p.id}), ${Buffer.byteLength(p.body)} байт`);
+      return;
+    }
+    const res = await client.request(`/pages/${encodeURIComponent(String(page.id))}/comments`, {
+      method: "POST",
+      body,
+    });
+    const payload = {
+      comment_id: res?.id ?? null,
+      page_id: page.id,
+      slug,
+      body: bodyText,
+      inline_text: null,
+      inline_range: null,
+      created_at: res?.created_at ?? null,
+    };
+    out(opts, payload, (p) => `✓ Комментарий #${p.comment_id ?? "?"} добавлен к «${p.slug}» (id ${p.page_id})`);
+    return;
+  }
+
+  if (page.page_type === "grid" || page.page_type === "cloud_page") {
+    throw new UsageError(
+      `page comment add: страница типа «${page.page_type}» не поддерживает инлайн-комментарии`,
+    );
+  }
+  const revision = revisionFor(opts, page);
+  const chars = toChars(page.content);
+  const markers = scanMarkers(chars);
+  const range = parseRange(inlineRange);
+  const text = validateRange(chars, range, markers);
+  const inserted = insertMarker(chars, range, 0);
+  const body = buildCommentBody({ body: bodyText, inlineText: text });
+
+  if (opts["--dry-run"]) {
+    const payload = {
+      dry_run: true,
+      action: "comment add",
+      slug,
+      id: page.id,
+      body: bodyText,
+      inline_text: text,
+      inline_range: { start: range.start, end: range.end },
+      marker: inserted.marker,
+      revision: revision ?? null,
+      bytes_before: Buffer.byteLength(String(page.content ?? "")),
+      bytes_after: Buffer.byteLength(inserted.content),
+    };
+    out(opts, payload, (p) => [
+      `dry-run: добавить инлайн-комментарий к «${p.slug}» (id ${p.id})`,
+      `  диапазон: ${p.inline_range.start}-${p.inline_range.end} → «${p.inline_text}»`,
+      `  маркер: ${p.marker} (revision ${p.revision ?? "не отправляется"})`,
+      `  байт: ${p.bytes_before} → ${p.bytes_after}`,
+    ].join("\n"));
+    return;
+  }
+
+  const comment = await client.request(`/pages/${encodeURIComponent(String(page.id))}/comments`, {
+    method: "POST",
+    body,
+  });
+  const commentId = comment?.id;
+  if (commentId === undefined || commentId === null) {
+    throw new WikiError("unavailable", "API не вернул id созданного комментария");
+  }
+  const marker = insertMarker(chars, range, commentId);
+  let updated;
+  try {
+    updated = await client.request(
+      `/pages/${encodeURIComponent(String(page.id))}` +
+        writeQuery({ fields: "last_revision_id,attributes", silent: Boolean(opts["--silent"]) }),
+      { method: "POST", body: buildEditBody({ content: marker.content, revision }) },
+    );
+  } catch (e) {
+    let cleaned = false;
+    try {
+      await client.request(
+        `/pages/${encodeURIComponent(String(page.id))}/comments/${encodeURIComponent(String(commentId))}`,
+        { method: "DELETE" },
+      );
+      cleaned = true;
+    } catch {
+      // Best effort: the comment may already be gone or the API may refuse.
+    }
+    const tail = cleaned
+      ? "Комментарий откатан, страница не изменена."
+      : `Комментарий #${commentId} остался — удалите его вручную.`;
+    const kind = e && e.kind && e.kind in EXIT ? e.kind : "unavailable";
+    throw new WikiError(kind, `${(e && e.message) || e}. ${tail}`, { status: e && e.status });
+  }
+
+  const payload = {
+    comment_id: commentId,
+    page_id: page.id,
+    slug,
+    body: bodyText,
+    inline_text: text,
+    inline_range: { start: range.start, end: range.end },
+    marker: marker.marker,
+    last_revision_id: updated?.last_revision_id ?? null,
+    modified_at: updated?.attributes?.modified_at ?? null,
+  };
+  out(opts, payload, (p) => [
+    `✓ Инлайн-комментарий #${p.comment_id} добавлен к «${p.slug}» (id ${p.page_id})`,
+    `  диапазон: ${p.inline_range.start}-${p.inline_range.end} → «${p.inline_text}»`,
+    `  ревизия: ${p.last_revision_id ?? "н/д"}`,
+  ].join("\n"));
+}
+
+async function cmdCommentReply(opts, slug, threadIdArg, textParts) {
+  if (!slug) throw new UsageError("page comment reply: укажите slug");
+  if (!threadIdArg) throw new UsageError("page comment reply: укажите thread-id");
+  const threadId = parseId(threadIdArg, "page comment reply");
+  const parentId = "--to" in opts ? intOpt(opts, "--to", undefined) : threadId;
+  const bodyText = await commentTextFrom(opts, textParts, "page comment reply");
+  const client = makeWriteClient(opts);
+  const page = await resolvePage(client, slug, { fields: "attributes" });
+  if (page.attributes?.is_readonly) {
+    throw new WikiError("access_denied", `страница «${slug}» доступна только для чтения`);
+  }
+  const body = buildCommentBody({ body: bodyText, parentId, threadId });
+
+  if (opts["--dry-run"]) {
+    const payload = {
+      dry_run: true,
+      action: "comment reply",
+      slug,
+      id: page.id,
+      parent_id: parentId,
+      thread_id: threadId,
+      body: bodyText,
+    };
+    out(opts, payload, (p) => `dry-run: ответить в ветку #${p.thread_id} (parent #${p.parent_id}) на «${p.slug}»`);
+    return;
+  }
+
+  const res = await client.request(`/pages/${encodeURIComponent(String(page.id))}/comments`, {
+    method: "POST",
+    body,
+  });
+  const payload = {
+    comment_id: res?.id ?? null,
+    page_id: page.id,
+    slug,
+    parent_id: parentId,
+    thread_id: threadId,
+    body: bodyText,
+    created_at: res?.created_at ?? null,
+  };
+  out(opts, payload, (p) => `✓ Ответ #${p.comment_id ?? "?"} добавлен в ветку #${p.thread_id} на «${p.slug}»`);
+}
+
+async function cmdCommentDelete(opts, slug, commentIdArg) {
+  if (!slug) throw new UsageError("page comment delete: укажите slug");
+  if (!commentIdArg) throw new UsageError("page comment delete: укажите id комментария");
+  const commentId = parseId(commentIdArg, "page comment delete");
+  const client = makeWriteClient(opts);
+  const page = await resolvePage(client, slug);
+  if (page.attributes?.is_readonly) {
+    throw new WikiError("access_denied", `страница «${slug}» доступна только для чтения`);
+  }
+  const chars = toChars(page.content);
+  const markers = scanMarkers(chars);
+  const marker = markers.find((m) => m.id === commentId) ?? null;
+  const revision = marker ? revisionFor(opts, page) : undefined;
+
+  if (opts["--dry-run"]) {
+    const payload = {
+      dry_run: true,
+      action: "comment delete",
+      slug,
+      id: page.id,
+      comment_id: commentId,
+      marker: marker ? { start: marker.start, end: marker.end, text: marker.text } : null,
+      revision: revision ?? null,
+    };
+    out(opts, payload, (p) => [
+      `dry-run: удалить комментарий #${p.comment_id} на «${p.slug}» (id ${p.id})`,
+      p.marker
+        ? `  маркер будет снят: ${p.marker.start}-${p.marker.end} → «${p.marker.text}»`
+        : "  маркера в тексте нет — страница не изменится",
+    ].join("\n"));
+    return;
+  }
+
+  if (!opts["--yes"]) {
+    if (opts["--no-input"] || !process.stdin.isTTY) {
+      throw new UsageError("page comment delete: нужно явное подтверждение — используйте --yes (или --dry-run)");
+    }
+    const ok = await confirm(`Удалить комментарий #${commentId} на «${slug}»? [y/N] `);
+    if (!ok) throw new UsageError("page comment delete: отменено");
+  }
+
+  const res = await client.request(
+    `/pages/${encodeURIComponent(String(page.id))}/comments/${encodeURIComponent(String(commentId))}`,
+    { method: "DELETE" },
+  );
+
+  let markerRemoved = false;
+  let lastRevisionId = null;
+  let markerError = null;
+  if (marker) {
+    const removed = removeMarkers(chars, commentId);
+    try {
+      const updated = await client.request(
+        `/pages/${encodeURIComponent(String(page.id))}` +
+          writeQuery({ fields: "last_revision_id,attributes", silent: Boolean(opts["--silent"]) }),
+        { method: "POST", body: buildEditBody({ content: removed.content, revision }) },
+      );
+      markerRemoved = true;
+      lastRevisionId = updated?.last_revision_id ?? null;
+    } catch (e) {
+      markerError = (e && e.message) || String(e);
+    }
+  }
+
+  const payload = {
+    comment_id: commentId,
+    page_id: page.id,
+    slug,
+    comments_count: res?.comments_count ?? null,
+    marker_removed: markerRemoved,
+    marker_error: markerError,
+    last_revision_id: lastRevisionId,
+  };
+  out(opts, payload, (p) => {
+    const head = `✓ Комментарий #${p.comment_id} удалён (id ${p.page_id})`;
+    if (!p.marker_removed && !p.marker_error) return `${head}\n  маркера в тексте не было`;
+    if (p.marker_removed) return `${head}\n  маркер снят, ревизия ${p.last_revision_id ?? "н/д"}`;
+    return `${head}\n  ВНИМАНИЕ: маркер остался — ${p.marker_error}`;
+  });
+  if (markerError) process.exitCode = EXIT.conflict;
+}
+
+async function cmdLocate(opts, slug, queryParts) {
+  if (!slug) throw new UsageError("page locate: укажите slug");
+  const query = queryParts.join(" ").trim();
+  if (!query) throw new UsageError("page locate: укажите текст для поиска");
+  const limit = intOpt(opts, "--limit", 20);
+  const client = makeClient(opts);
+  const page = await resolvePage(client, slug);
+  const chars = toChars(page.content);
+  const markers = scanMarkers(chars);
+  const { total, occurrences } = locateText(chars, query, { limit, markers });
+  const payload = { slug: page.slug ?? slug, id: page.id, query, count: total, occurrences };
+  const human = () => {
+    if (!total) return `Не найдено «${query}» на «${slug}».`;
+    const lines = [`# ${page.title ?? slug}`, `slug: ${slug}`, `query: ${query}`, `count: ${total}`, ""];
+    for (const o of occurrences) {
+      lines.push(`${o.start}-${o.end} (${o.line}:${o.column})${o.inside_marker ? " [внутри маркера]" : ""}`);
+      lines.push(`  ${o.context}`);
+    }
+    if (total > occurrences.length) {
+      lines.push("", `Показаны первые ${occurrences.length}; увеличьте --limit, чтобы увидеть больше.`);
+    }
+    return lines.join("\n");
   };
   out(opts, payload, human);
 }
@@ -789,7 +1143,22 @@ async function main() {
       await cmdDescendants(opts, resolved.args[0]);
       break;
     case "comments":
-      await cmdComments(opts, resolved.args[0]);
+      await cmdCommentList(opts, resolved.args[0]);
+      break;
+    case "commentList":
+      await cmdCommentList(opts, resolved.args[0]);
+      break;
+    case "commentAdd":
+      await cmdCommentAdd(opts, resolved.args[0], resolved.args.slice(1));
+      break;
+    case "commentReply":
+      await cmdCommentReply(opts, resolved.args[0], resolved.args[1], resolved.args.slice(2));
+      break;
+    case "commentDelete":
+      await cmdCommentDelete(opts, resolved.args[0], resolved.args[1]);
+      break;
+    case "locate":
+      await cmdLocate(opts, resolved.args[0], resolved.args.slice(1));
       break;
     case "create":
       await cmdCreate(opts, resolved.args[0]);

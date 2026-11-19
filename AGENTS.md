@@ -2,16 +2,21 @@
 
 `ywiki` is a zero-dependency Node CLI for Yandex Wiki. Install and usage live in
 [`README.md`](README.md); this file holds the rules that keep the tool
-dependency-free, token-safe, and read-only by default.
+dependency-free, token-safe, and reads-by-default.
 
 ## Hard rules
 
 - **Reads by default; writes are explicit.** Reads live under `page get|search|
-  descendants|comments`, `space list`, and the flat shortcuts. Mutations exist
-  only as `page create|edit|append|delete` and have **no** shortcuts: the write
-  surface must stay identifiable by one prefix so a permission rule can gate it.
+  descendants|locate|comments`, `page comment list|thread`, `space list`, and the
+  flat shortcuts. Mutations exist only as `page create|edit|append|delete` and
+  `page comment add|reply|delete`, and have **no** shortcuts: the write surface
+  must stay identifiable by one prefix so a permission rule can gate it.
   `ywiki api` stays `GET`-only. Do not add a mutating subcommand outside those
-  four verbs.
+  verbs.
+- **Inline comments are two writes.** `inline_text` is metadata; the anchor is
+  the `&[text](id)` marker in the page content. Create the comment, then edit the
+  page with the marker; on a failed page edit, delete the comment. Deleting an
+  inline comment removes its marker in a second write.
 - **Writes are never replayed.** A timeout or `5xx` on a mutation means the
   outcome is unknown: do not auto-retry; tell the caller to re-read the page.
   A rejected request (`401`) may be retried after refresh, since it has no side
@@ -41,6 +46,8 @@ dependency-free, token-safe, and read-only by default.
 | `lib/refresh.mjs` | single-flight `the legacy refresh helper --refresh` + cooldown |
 | `lib/client.mjs` | HTTP, retries, 401 self-heal, disk cache |
 | `lib/write.mjs` | pure helpers for `page create|edit|append|delete` |
+| `lib/inline.mjs` | ranges, `&[text](id)` markers, `page locate` |
+| `lib/comments.mjs` | comment bodies, queries, summaries |
 | `lib/output.mjs` | `EXIT` codes, `WikiError`, clipping, usage text |
 | `test/*.test.mjs` | offline tests; fixtures in `test/fixtures/` |
 
