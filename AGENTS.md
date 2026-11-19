@@ -80,3 +80,4 @@ One task per commit: `feat: …` / `fix: …` / `docs: …`. After a task, repor
 - [`docs/runbook.md`](docs/runbook.md) — operations, troubleshooting, token lifecycle.
 - [`docs/wiki-api-notes.md`](docs/wiki-api-notes.md) — the confirmed Wiki API surface.
 - [`docs/conventions.md`](docs/conventions.md) — command shape, output modes and exit codes.
+- [`docs/agent-permissions.md`](docs/agent-permissions.md) — OpenCode permission example.
