@@ -2,8 +2,7 @@
 
 CLI for **Yandex Wiki**, for people and agents. It owns its credential and auth
 flow: the credential lives in `~/.config/ywiki/credentials.toml` (schema v2),
-and refresh is lazy and handled by `ywiki` itself. It does not read the shared
-legacy credential and does not call `the legacy refresh helper`.
+and refresh is lazy and handled by `ywiki` itself.
 
 Reads are the default. Mutations are explicit and confined to the page and
 comment commands (`page create|edit|append|delete`, `page comment
@@ -35,8 +34,8 @@ or `--method token`; see [Auth](#auth).
 
 ## Usage
 
-`ywiki` follows the `the legacy CLI` CLI conventions: grouped commands with flat
-shortcuts, JSON output by default when piped, rich text on a terminal.
+`ywiki` uses grouped commands with flat shortcuts, JSON output by default when
+piped, and rich text on a terminal.
 
 ```bash
 ywiki whoami                        # login, scheme, org, credential age, token prefix
@@ -128,13 +127,12 @@ Global flags: `--json`, `--rich-ui=yes|no`, `--no-cache`,
 `--timeout-ms N` (alias `--timeout S`), `--no-input`.
 Environment: `WIKI_IAM_TOKEN`, `WIKI_TOKEN`, `WIKI_ORGANIZATION_ID`,
 `WIKI_CREDENTIALS`, `WIKI_OAUTH_CLIENT_ID`, `WIKI_CACHE_DIR`, `WIKI_NO_CACHE`,
-`WIKI_BASE_URL`, `WIKI_YC_BIN`, `WIKI_YC_PROFILE`. `LEGACY_*` variables are not
-read.
+`WIKI_BASE_URL`, `WIKI_YC_BIN`, `WIKI_YC_PROFILE`.
 
 Output: JSON when stdout is not a TTY (agents, pipes, CI); rich text on a TTY.
 `--json` forces JSON, `--rich-ui=yes|no` overrides both ways.
 
-Exit codes (aligned with `the legacy CLI`):
+Exit codes:
 
 | Code | Meaning | What to do |
 |---|---|---|
@@ -182,7 +180,7 @@ A new read verb without its own rule is denied — the split fails closed.
 
 ## Auth
 
-`ywiki` owns its credential; no `the legacy CLI` file or timer is involved.
+`ywiki` owns its credential; no other tool's file or timer is involved.
 
 - Credential: `~/.config/ywiki/credentials.toml` (schema v2; override with
   `WIKI_CREDENTIALS`). Written atomically with mode `0600` in a `0700` directory.
@@ -191,9 +189,6 @@ A new read verb without its own rule is denied — the split fails closed.
   `X-Cloud-Org-Id` (numeric org → `X-Org-Id`).
 - ENV overrides take precedence over the file and are never written back:
   `WIKI_IAM_TOKEN` (IAM) or `WIKI_TOKEN` (OAuth), plus `WIKI_ORGANIZATION_ID`.
-  `LEGACY_*` variables are intentionally ignored. When migrating from
-  `the legacy CLI`, rename `LEGACY_IAM_TOKEN` → `WIKI_IAM_TOKEN` and
-  `LEGACY_ORGANIZATION_ID` → `WIKI_ORGANIZATION_ID`.
 
 ### Login methods
 
@@ -209,7 +204,7 @@ ywiki auth login --method iam     --organization-id <org> [--yc-profile P]
 - `browser` (default) — OAuth 2.0 Authorization Code + PKCE. The callback stays
   on `127.0.0.1` (ports `21332`, `24816`, `28934`; path `/callback`); the token
   is exchanged server-side and never enters `argv`. The token request does not
-  send `redirect_uri`, matching `the legacy CLI`. It needs a Wiki OAuth app client id
+  send `redirect_uri`, matching the browser login flow. It needs a Wiki OAuth app client id
   (`--client-id` or `WIKI_OAUTH_CLIENT_ID`). Without one, `auth login` explains
   how to create it and suggests `--method iam`. For a cloud organization the
   OAuth page may not work; `--method iam` is the fallback.
@@ -255,8 +250,8 @@ npm test
 - [`docs/runbook.md`](docs/runbook.md) — operations, troubleshooting, token lifecycle.
 - [`docs/wiki-api-notes.md`](docs/wiki-api-notes.md) — Wiki API surface
   (read and write endpoints confirmed live).
-- [`docs/compat.md`](docs/compat.md) — the legacy CLI ↔ ywiki convention mapping.
-- [`docs/plan.md`](docs/plan.md) — the original v2 build plan (historical).
+- [`docs/conventions.md`](docs/conventions.md) — command shape, output modes,
+  exit codes and design rules.
 
 ## Safety
 

@@ -1,14 +1,13 @@
 # Yandex Wiki API — surface notes
 
-Status: **read and write endpoints confirmed against the live API** (write check
-done on a disposable page in `a disposable test page`). No page content is reproduced in this
+Status: **read and write endpoints confirmed against the live API** (the write
+check was done on a disposable test page). No page content is reproduced in this
 file.
 
-The original probe used the legacy shared credential; `ywiki` now owns its
-credential (`~/.config/ywiki/credentials.toml`) and refresh path. The endpoint
-shapes below are unchanged. The probe read the token into process memory only;
-only HTTP status codes and response *shapes* were printed. The token never
-entered argv and was never printed in full.
+The endpoint shapes below were confirmed with a personal credential. The probe
+read the token into process memory only; only HTTP status codes and response
+*shapes* were printed. The token never entered argv and was never printed in
+full.
 
 ## 1. Scheme
 
@@ -17,8 +16,8 @@ prefix and a non-numeric `organization_id` (20 chars).
 
 **Result: `scheme = "iam"` — confirmed.** Requests with
 `Authorization: Bearer <IAM-token>` returned `200 OK` on multiple endpoints.
-No `401`/`403` was observed. `ywiki` now refreshes IAM lazily with
-`yc iam create-token`; the shared `the legacy refresh helper` timer is no longer involved.
+No `401`/`403` was observed. `ywiki` refreshes IAM lazily with
+`yc iam create-token`.
 - `Authorization: Bearer <token>` — IAM (used here, confirmed).
 - `Authorization: OAuth <token>` — OAuth 2.0 (supported by `ywiki`; not exercised
   in the original probe).
@@ -116,7 +115,7 @@ is a search **snippet**, plus `next_cursor`, `prev_cursor`.
 
 ## 4. Write surface (live-confirmed)
 
-Confirmed against the live API on a disposable page (`a disposable test page`):
+Confirmed against the live API on a disposable test page:
 create → edit → append → delete. The shape below is what
 `ywiki page create|edit|append|delete` sends. No page content is reproduced here.
 
@@ -206,7 +205,7 @@ Observed live: `404 NOT_FOUND` (unknown slug), `400 ALREADY_INDEXING`
 value; a caller mistake), `400 MERGE_FAILED` (3-way merge conflict), `409`
 (stale `revision`), `401` (expired IAM token).
 
-Error taxonomy mapping for the CLI (aligned with `the legacy CLI`, see docs/compat.md):
+Error taxonomy mapping for the CLI (see docs/conventions.md):
 `401` → `unauthenticated` (exit 3; one self-heal attempt, then error);
 `403` → `access_denied` (exit 4, no retry); `404 NOT_FOUND` → `not_found` (exit 5);
 `409` / `400 ALREADY_INDEXING` / `400 MERGE_FAILED` → `conflict` (exit 6);
@@ -215,14 +214,11 @@ Error taxonomy mapping for the CLI (aligned with `the legacy CLI`, see docs/comp
 
 ## 6. Runtime / proxy
 
-Confirmed reachable **from the the service runtime**, which is where the
-custom tools execute. That process environment carries `HTTP_PROXY`/`HTTPS_PROXY`
-(pointing at the corporate proxy) with `NO_PROXY` covering only localhost/loopback.
-
-`api.wiki.yandex.net` is **not** in `NO_PROXY`. Both a plain `fetch` and
-Node's `--use-env-proxy` returned `200`, i.e. the host reaches the API; no special
-proxy handling is required in the tool code. Node 24.18.0 supports
-`--use-env-proxy` if the network topology ever requires it.
+The API is a normal HTTPS endpoint and works with a plain `fetch`. Node does not
+apply `HTTP_PROXY`/`HTTPS_PROXY` automatically; if your network requires a proxy,
+run Node with `--use-env-proxy` (supported since Node 24) or set the standard
+proxy variables for the runtime. No special proxy handling is required in the
+tool code.
 
 ## 7. Consequences for the CLI
 

@@ -1,8 +1,7 @@
 # Runbook: `ywiki` — Yandex Wiki access
 
 `ywiki` is a zero-dependency Node CLI for Yandex Wiki. It owns its credential
-(`~/.config/ywiki/credentials.toml`) and its refresh path; it does not read the
-legacy shared credential and does not call `the legacy refresh helper`. Reads are the default;
+(`~/.config/ywiki/credentials.toml`) and its refresh path. Reads are the default;
 mutations go only through the explicit `page create|edit|append|delete` and
 `page comment add|reply|delete` commands.
 
@@ -94,7 +93,7 @@ ywiki page comment delete <slug> <comment-id> --yes
 Output is JSON when stdout is not a terminal (agents, pipes, CI) and rich text
 on a terminal; `--json` / `--rich-ui=yes|no` override.
 
-Exit codes (aligned with `the legacy CLI`): `0` ok · `2` usage · `3` auth required ·
+Exit codes: `0` ok · `2` usage · `3` auth required ·
 `4` access denied (do not retry) · `5` not found · `6` conflict · `8`
 unavailable (retry later).
 
@@ -121,7 +120,7 @@ ywiki auth login --method iam --organization-id <org>   # or --method browser/to
 
 - `browser` — OAuth 2.0 Authorization Code + PKCE. Callback ports `21332`,
   `24816`, `28934`; path `/callback`. The token request does not send
-  `redirect_uri`, matching `the legacy CLI`. Needs a Wiki OAuth app client id.
+  `redirect_uri`, matching the browser login flow. Needs a Wiki OAuth app client id.
 - `token` — paste an OAuth or IAM token on stdin or a hidden TTY prompt. Prints
   the token page when a client id is configured, otherwise a generic OAuth link
   and IAM instructions.
@@ -166,9 +165,7 @@ ywiki spaces              # quick read-only reachability check
 | `WIKI_YC_BIN` | `yc` binary (default `yc`; tests use a stub) |
 | `WIKI_YC_PROFILE` | `yc` profile for `iam create-token` |
 
-`LEGACY_*` variables are not read. Migrating from `the legacy CLI`: rename
-`LEGACY_IAM_TOKEN` → `WIKI_IAM_TOKEN` and `LEGACY_ORGANIZATION_ID` →
-`WIKI_ORGANIZATION_ID`.
+`WIKI_*` variables are the only ones read.
 
 ## Safety rules
 

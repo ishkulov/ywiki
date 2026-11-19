@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // ywiki — CLI for Yandex Wiki with its own credential and auth flow.
 //
-// Command tree, output modes, error envelope and exit codes mirror `the legacy CLI`
-// so agents and scripts can treat both tools the same way. The token is read
+// Command tree, output modes, error envelope and exit codes are described in
+// README.md. The token is read
 // from ~/.config/ywiki/credentials.toml (or WIKI_* env), never passed via argv,
 // and is masked everywhere it could appear in output.
 
@@ -120,7 +120,7 @@ const BOOL_FLAGS = new Set([
   "--page-level",
   "--no-open",
 ]);
-/** Short aliases, mirroring the legacy CLI's top-level `-h, --help` / `-v, --version`. */
+/** Short aliases for the top-level `-h, --help` / `-v, --version`. */
 const SHORT_ALIASES = { "-h": "--help", "-v": "--version" };
 
 /**
@@ -136,7 +136,7 @@ function parseArgs(argv) {
 
   for (let i = 0; i < argv.length; i++) {
     let a = argv[i];
-    // Support the `--flag=value` form (e.g. `--rich-ui=yes`) as the legacy CLI does.
+    // Support the `--flag=value` form (e.g. `--rich-ui=yes`).
     let inline;
     if (a.startsWith("--") && a.includes("=")) {
       const eq = a.indexOf("=");
@@ -425,7 +425,7 @@ async function cmdWhoami(opts) {
     credentialAgeHours: ageMs === null ? null : Number((ageMs / 3600000).toFixed(1)),
     token: tok,
   };
-  // Rich form mirrors the legacy CLI's `✓ Authenticated as …` block.
+  // Rich form prints a `✓ Authenticated as …` block.
   const human = (p) => [
     `✓ Authenticated as ${p.identity.login}`,
     `  Contour: ${p.contour ?? "wiki"}`,

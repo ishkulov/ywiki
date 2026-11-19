@@ -31,9 +31,9 @@ const ENV_KEYS = [
   "WIKI_IAM_TOKEN",
   "WIKI_TOKEN",
   "WIKI_ORGANIZATION_ID",
-  "LEGACY_IAM_TOKEN",
-  "LEGACY_TOKEN",
-  "LEGACY_ORGANIZATION_ID",
+  "OTHER_IAM_TOKEN",
+  "OTHER_TOKEN",
+  "OTHER_ORGANIZATION_ID",
 ];
 
 /** @type {string[]} */
@@ -136,9 +136,9 @@ test("WIKI_TOKEN is treated as oauth", () => {
   assert.equal(authHeaders(c).Authorization, `OAuth ${oauth()}`);
 });
 
-test("LEGACY_* variables are ignored", () => {
-  process.env.LEGACY_IAM_TOKEN = iam();
-  process.env.LEGACY_ORGANIZATION_ID = "b1g-tracker";
+test("non-WIKI_* variables are ignored", () => {
+  process.env.OTHER_IAM_TOKEN = iam();
+  process.env.OTHER_ORGANIZATION_ID = "b1g-other";
   assert.throws(() => credentials(), /ywiki auth login/);
 });
 

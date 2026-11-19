@@ -23,8 +23,7 @@ dependency-free, token-safe, and reads-by-default.
   A rejected request (`401`) may be retried after refresh, since it has no side
   effects. Only idempotent reads are cached; a successful write clears the cache.
 - **One Wiki credential, no timer.** `ywiki` owns
-  `~/.config/ywiki/credentials.toml` (schema v2). It does not read the shared legacy
-  credential and does not call `the legacy refresh helper`. Refresh is lazy and single-flight:
+  `~/.config/ywiki/credentials.toml` (schema v2). Refresh is lazy and single-flight:
   IAM via `yc iam create-token`, OAuth via the stored `refresh_token`. Do not add
   a timer or a second token source. Writes to the credential file go through
   `writeCredential()` only.
@@ -80,4 +79,4 @@ One task per commit: `feat: …` / `fix: …` / `docs: …`. After a task, repor
 - [`README.md`](README.md) — install, usage, flags, env vars, exit codes, auth.
 - [`docs/runbook.md`](docs/runbook.md) — operations, troubleshooting, token lifecycle.
 - [`docs/wiki-api-notes.md`](docs/wiki-api-notes.md) — the confirmed Wiki API surface.
-- [`docs/plan.md`](docs/plan.md) — the original v2 build plan (historical).
+- [`docs/conventions.md`](docs/conventions.md) — command shape, output modes and exit codes.
