@@ -32,14 +32,15 @@ class UsageError extends Error {}
 const VALUE_FLAGS = new Set([
   "--offset",
   "--limit",
-  "--depth",
   "--fields",
   "--cursor",
   "--timeout",
   "--timeout-ms",
   "--rich-ui",
 ]);
-const BOOL_FLAGS = new Set(["--json", "--no-cache", "--no-input", "--all", "--help", "-h", "--version"]);
+const BOOL_FLAGS = new Set(["--json", "--no-cache", "--no-input", "--all", "--help", "--version"]);
+/** Short aliases, mirroring the legacy CLI's top-level `-h, --help` / `-v, --version`. */
+const SHORT_ALIASES = { "-h": "--help", "-v": "--version" };
 
 /**
  * Parse argv into positionals and a flat options map. `--header` is repeatable
@@ -62,6 +63,7 @@ function parseArgs(argv) {
       a = a.slice(0, eq);
       if (inline === "") throw new UsageError(`флагу ${a} нужно значение`);
     }
+    if (a in SHORT_ALIASES) a = SHORT_ALIASES[a];
     if (a === "--header") {
       const v = inline !== undefined ? inline : argv[i + 1];
       if (v === undefined || v.startsWith("--")) throw new UsageError("флагу --header нужно значение");
@@ -76,7 +78,7 @@ function parseArgs(argv) {
       if (inline === undefined) i++;
     } else if (BOOL_FLAGS.has(a)) {
       if (inline !== undefined) throw new UsageError(`флаг ${a} не принимает значение`);
-      opts[a === "-h" ? "--help" : a] = true;
+      opts[a] = true;
     } else if (a.startsWith("--")) {
       throw new UsageError(`неизвестный флаг: ${a}`);
     } else {

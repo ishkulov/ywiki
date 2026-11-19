@@ -26,6 +26,7 @@ way. This file records the mapping and the intentional differences.
 | Refresh | on-demand; `auth login --method token` | reuse the `the legacy refresh helper` timer; one `--refresh` self-heal on 401 |
 | Passthrough | `api <method> <path>` | `api GET <path>` (read-only subset only) |
 | Agent guidance | `skill` | `skill` |
+| Short flags | `-h`/`--help`, `-v`/`--version [--json]` | same (`-v` prints one line; JSON on `--json`) |
 | Extra | `--dry-run`, `--no-input`, `--ai-access-check` | `--no-input` accepted; no mutations, so no dry-run/ai-check |
 
 ## Exit codes (identical)

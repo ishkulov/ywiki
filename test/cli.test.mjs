@@ -173,10 +173,18 @@ test("--help exits 0 and is at most 25 lines", async () => {
   assert.ok(r.stdout.trimEnd().split("\n").length <= 25);
 });
 
-test("--version prints the version", async () => {
-  const r = await run(["--version"]);
-  assert.equal(r.status, 0);
-  assert.match(r.stdout, /^ywiki \d+\.\d+\.\d+/);
+test("--version and -v print the version; -v --json is machine-readable", async () => {
+  const long = await run(["--version"]);
+  assert.equal(long.status, 0);
+  assert.match(long.stdout, /^ywiki \d+\.\d+\.\d+/);
+
+  const short = await run(["-v"]);
+  assert.equal(short.status, 0, short.stderr);
+  assert.equal(short.stdout.trim(), long.stdout.trim());
+
+  const j = await run(["-v", "--json"]);
+  assert.equal(j.status, 0, j.stderr);
+  assert.deepEqual(Object.keys(JSON.parse(j.stdout)).sort(), ["contour", "version"]);
 });
 
 test("no output ever contains the full token", async () => {
