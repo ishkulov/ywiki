@@ -312,6 +312,42 @@ test("auth login --method iam stores a credential; status and logout work offlin
   }
 });
 
+test("auth login without an organization id needs a flag or env (non-interactive exits 2)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "ywiki-auth-cli-"));
+  const cred = join(dir, "credentials.toml");
+  try {
+    const r = await run(["auth", "login", "--method", "iam", "--yc-bin", YC], {
+      WIKI_IAM_TOKEN: "",
+      WIKI_TOKEN: "",
+      WIKI_ORGANIZATION_ID: "",
+      WIKI_CREDENTIALS: cred,
+    });
+    assert.equal(r.status, 2);
+    assert.match(r.stderr, /organization id/);
+    assert.ok(!existsSync(cred), "no credential file is written");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("auth login --method browser without a client id fails before any OAuth flow", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "ywiki-auth-cli-"));
+  const cred = join(dir, "credentials.toml");
+  try {
+    const r = await run(["auth", "login", "--method", "browser", "--organization-id", "orgTEST"], {
+      WIKI_IAM_TOKEN: "",
+      WIKI_TOKEN: "",
+      WIKI_OAUTH_CLIENT_ID: "",
+      WIKI_CREDENTIALS: cred,
+    });
+    assert.equal(r.status, 2);
+    assert.match(r.stderr, /client id/);
+    assert.ok(!existsSync(cred), "no credential file is written");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("auth login refuses to write while an ENV token is active", async () => {
   const dir = mkdtempSync(join(tmpdir(), "ywiki-auth-cli-"));
   const cred = join(dir, "credentials.toml");

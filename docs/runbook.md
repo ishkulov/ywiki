@@ -126,8 +126,11 @@ ywiki auth login --method iam --organization-id <org>   # or --method browser/to
   and IAM instructions.
 - `iam` — `yc --no-browser iam create-token`, validated against `GET /users/me`.
 
-In a TTY, `auth login` asks for a method (browser default). Outside a TTY,
-`--method` is required. For a cloud organization the OAuth page may not work;
+In a TTY, `auth login` asks for a method and for the organization id when
+neither `--organization-id` nor `WIKI_ORGANIZATION_ID` is set. The method default
+is `browser` when an OAuth client id is configured, otherwise `iam`. Outside a
+TTY the method comes from `--method` and the org id from the flag or
+`WIKI_ORGANIZATION_ID`. For a cloud organization the OAuth page may not work;
 use `--method iam`. An IAM token lives about 12 hours and is refreshed lazily.
 
 ## Verify / troubleshoot

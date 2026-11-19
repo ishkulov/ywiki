@@ -360,14 +360,42 @@ async function confirm(question) {
   }
 }
 
-/** @returns {Promise<"browser" | "iam" | "token">} */
-async function chooseLoginMethod() {
+/** Where an organization id comes from; shared by the prompt and the error. */
+const ORG_HINT = "b1g… из консоли Yandex Cloud или числовой id Яндекс 360";
+
+/**
+ * Ask for whatever login input is missing (method, organization id) over one
+ * readline interface: two sequential interfaces on the same stdin drop buffered
+ * input, so both questions must share one.
+ * @param {{ method: string | null, org: string, defaultMethod: string }} inputs
+ * @returns {Promise<{ method: string, org: string }>}
+ */
+async function promptLoginInputs({ method, org, defaultMethod }) {
   const rl = createInterface({ input: process.stdin, output: process.stderr });
+  // Iterate instead of `rl.question`: the iterator keeps lines that arrived
+  // before the question was asked (pasted or pre-buffered input).
+  const lines = rl[Symbol.asyncIterator]();
+  /** @param {string} text */
+  const ask = async (text) => {
+    process.stderr.write(text);
+    const { value, done } = await lines.next();
+    if (done) throw new UsageError("auth login: ввод прерван (EOF)");
+    return String(value).trim();
+  };
   try {
-    const answer = (await rl.question("Метод входа [browser/iam/token] (browser): ")).trim().toLowerCase();
-    if (!answer) return "browser";
-    if (answer === "browser" || answer === "iam" || answer === "token") return answer;
-    throw new UsageError(`неизвестный метод входа: ${answer} (browser, iam, token)`);
+    if (!method) {
+      const answer = (await ask(`Метод входа [browser/iam/token] (${defaultMethod}): `)).toLowerCase();
+      if (!answer) method = defaultMethod;
+      else if (answer === "browser" || answer === "iam" || answer === "token") method = answer;
+      else throw new UsageError(`неизвестный метод входа: ${answer} (browser, iam, token)`);
+    }
+    if (!org) {
+      const answer = await ask(`Organization id (${ORG_HINT}): `);
+      if (!answer) throw new UsageError("auth login: organization id не введён");
+      if (/\s/.test(answer)) throw new UsageError("auth login: organization id не содержит пробелов");
+      org = answer;
+    }
+    return { method, org };
   } finally {
     rl.close();
   }
@@ -446,17 +474,30 @@ async function cmdAuthLogin(opts) {
     );
   }
   const clientId = opts["--client-id"] || process.env.WIKI_OAUTH_CLIENT_ID || "";
-  let method = opts["--method"];
-  if (!method) {
-    if (opts["--no-input"] || !process.stdin.isTTY) {
+  let method = opts["--method"] ? String(opts["--method"]) : null;
+  if (method && method !== "browser" && method !== "token" && method !== "iam") {
+    throw new UsageError(`auth login: неизвестный метод «${method}» (browser|iam|token)`);
+  }
+  let org = String(opts["--organization-id"] || process.env.WIKI_ORGANIZATION_ID || "");
+  // `browser` is the nicer flow, but it cannot start without an OAuth app id;
+  // then `iam` is the practical default (cloud/federated accounts).
+  const defaultMethod = clientId ? "browser" : "iam";
+  if ((!method || !org) && (opts["--no-input"] || !process.stdin.isTTY)) {
+    if (!method) {
       throw new UsageError("auth login: укажите --method browser|iam|token (интерактивный выбор недоступен)");
     }
-    method = await chooseLoginMethod();
+    throw new UsageError(
+      `auth login: нужен organization id — ${ORG_HINT}; укажите --organization-id или WIKI_ORGANIZATION_ID`,
+    );
   }
-  const org = opts["--organization-id"] || process.env.WIKI_ORGANIZATION_ID || "";
+  if (!method || !org) ({ method, org } = await promptLoginInputs({ method, org, defaultMethod }));
   const timeoutMs = timeoutFrom(opts);
   const callbackTimeoutMs = opts["--callback-timeout-ms"] ? Number(opts["--callback-timeout-ms"]) : undefined;
-  if (!org) throw new UsageError("auth login: нужен --organization-id или WIKI_ORGANIZATION_ID");
+  if (method === "browser" && !clientId) {
+    throw new UsageError(
+      "auth login: для browser-входа нужен OAuth client id — --client-id или WIKI_OAUTH_CLIENT_ID; для cloud/федеративных аккаунтов используйте --method iam",
+    );
+  }
 
   if (method === "token") {
     const page = tokenPageUrl({ clientId });
