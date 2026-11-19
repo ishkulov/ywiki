@@ -17,7 +17,7 @@ way. This file records the mapping and the intentional differences.
 
 | Aspect | the legacy CLI | ywiki |
 |---|---|---|
-| Commands | grouped (`issue view`, `queue list`) | `page get/search/descendants/locate/comments`, `page comment list`, `space list` + shortcuts `get/search/tree/spaces`; writes: `page create/edit/append/delete`, `page comment add/reply/delete` |
+| Commands | grouped (`issue view`, `queue list`) | `page get/search/descendants/locate/history/revision/comments`, `page comment list`, `space list` + shortcuts `get/search/tree/spaces`; writes: `page create/edit/append/delete`, `page comment add/reply/delete` |
 | Default output | JSON when piped, ANSI on TTY | same (`--json` / `--rich-ui=yes\|no`) |
 | Help | `$ cmd` example + annotation, `Usage`/`Commands`/`Options` | same |
 | Errors | `Error: <Title>` / detail / `Next:` | same |
@@ -57,5 +57,6 @@ HTTP → code: `401 → 3`, `403 → 4`, `404 → 5`, `409`/`ALREADY_INDEXING �
 - **`config`** does not exist (nothing to configure).
 - **No `--ai-access-check`** — not part of the Wiki API surface.
 - **Cursor flags** (`--all`, `--cursor N`) are exposed on the read endpoints
-  that return a `next_cursor` (`search`, `descendants`, `spaces`, comments).
-  The comments cursor is a **string**, unlike the integer cursors elsewhere.
+  that return a `next_cursor` (`search`, `descendants`, `spaces`, comments,
+  revisions). The comments and revisions cursors are **strings**, unlike the
+  integer cursors elsewhere.

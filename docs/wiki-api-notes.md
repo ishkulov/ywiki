@@ -57,9 +57,13 @@ This is the reliable navigation primitive: walk from `""` downward.
 ### GET `/v1/pages` → 200
 Page by slug. Query: `slug` (required), `fields` (comma list), `revision_id`,
 `raise_on_redirect`.
+
 - Default body (no `fields`): `id, slug, title, page_type, active_revision`.
 - With `fields=content,attributes,last_revision_id`: adds `content` (string),
   `attributes{...}`, `last_revision_id`.
+- With `revision_id=N` the body describes that revision: `content` is its
+  content and `active_revision` is that revision's metadata. An unknown
+  revision id returns `404 NOT_FOUND` (**live-confirmed**).
 - `content` is **only** returned when `content` is listed in `fields`.
 - `page_type` enum: `page`, `grid`, `cloud_page`, `wysiwyg`, `template`.
   Observed actual pages are mostly `wysiwyg`.
@@ -69,7 +73,21 @@ Page by slug. Query: `slug` (required), `fields` (comma list), `revision_id`,
   `content`. This is why `wiki_get` must clip and offer an `offset`.
 
 ### GET `/v1/pages/{id}` → 200
-Same schema as `/v1/pages`, addressed by page id instead of slug.
+Same schema as `/v1/pages`, addressed by page id instead of slug. Query:
+`fields`, `revision_id`, `raise_on_redirect` — the same semantics as above.
+
+### GET `/v1/pages/{idx}/revisions` → 200
+Page history, **newest first**; read access to the page is required. Keyed by
+the numeric page id. Query: `cursor` (**string**, like comments; from
+`next_cursor`/`prev_cursor`), `ids` (comma-separated revision ids),
+`page_size` (1–50, default **25**). Body:
+`results[]` of `PageRevisionSchema` (`id`, `author{id,username,display_name,…}`,
+`created_at`, `page_type`, `revision_draft{id,created_at,modified_at}`,
+`publication{status}`), plus `next_cursor`, `prev_cursor`.
+**Live-confirmed:** `page_size=3` returned three revisions and a base64
+`next_cursor`; `revision_draft` and `publication` may be `null`. There is no
+diff or restore endpoint: compare locally and restore by editing with the old
+content.
 
 ### GET `/v1/pages/{id}/comments` → 200
 List top-level discussion comments for a page. Keyed by the **numeric page id**
@@ -216,6 +234,12 @@ proxy handling is required in the tool code. Node 24.18.0 supports
   `GET /v1/pages/{id}/comments/{id}/thread`.
 - **`ywiki page locate`**: read the page `content` and search it locally; it
   returns 0-based, end-exclusive ranges for `--inline-range`.
+- **`ywiki page history`**: resolve the id via
+  `GET /v1/pages?slug=…&fields=last_revision_id`, then
+  `GET /v1/pages/{id}/revisions?page_size=…` (`--all` follows the string cursor;
+  `--limit` is 1–50).
+- **`ywiki page revision`**: one `GET /v1/pages?slug=…&revision_id=…&fields=content,attributes,last_revision_id`;
+  `active_revision` carries the requested revision's author and date.
 - **`ywiki page comment add`**: `POST /v1/pages/{id}/comments` with
   `{body, inline_text?, parent_id?, thread_id?}`. With `--inline-range`, the
   comment is created first, then the page is edited with the `&[text](id)`

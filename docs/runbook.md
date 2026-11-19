@@ -23,11 +23,28 @@ ywiki page search "<term>" # find pages (JSON when piped; --rich-ui=yes for text
 ywiki page get <slug>      # read a page (clipped; continue with --offset N)
 ywiki page descendants <slug>  # list sub-pages
 ywiki page locate <slug> "<text>"  # find ranges for inline comments
+ywiki page history <slug>      # revisions, newest first
+ywiki page revision <slug> <id>  # content of one revision
 ywiki page comments <slug>     # top-level comments (alias of page comment list)
 ywiki page comment list <slug> --thread <id>  # replies in a thread
 ywiki space list           # list spaces
 ywiki search "<term>"      # shortcuts: get / search / tree / spaces
 ```
+
+### History
+
+```bash
+ywiki page history <slug> --limit 20       # newest first; --all pages the rest
+ywiki page history <slug> --ids 123,456    # only these revisions
+ywiki page revision <slug> 123             # content of one revision
+```
+
+- `--limit` is the API `page_size` (1–50); the revisions cursor is a **string**,
+  so `--cursor` takes a `next_cursor` value verbatim.
+- `page revision` clips long content exactly like `page get`; continue with
+  `--offset N`.
+- History is read-only. There is no diff/restore subcommand: compare by reading
+  two revisions; restore by `page edit --file …` with the old content.
 
 ### Editing pages
 

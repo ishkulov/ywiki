@@ -54,6 +54,15 @@ import {
   commentSummary,
   commentHead,
 } from "../lib/comments.mjs";
+import {
+  revisionQuery,
+  validateRevisionPageSize,
+  parseRevisionIds,
+  revisionSummary,
+  revisionHead,
+  revisionOf,
+  isCurrentRevision,
+} from "../lib/history.mjs";
 
 // ---------------------------------------------------------------------------
 // Argument parsing
@@ -79,6 +88,7 @@ const VALUE_FLAGS = new Set([
   "--to",
   "--status",
   "--order",
+  "--ids",
 ]);
 const BOOL_FLAGS = new Set([
   "--json",
@@ -177,6 +187,8 @@ function resolveCommand(positionals) {
       if (verb === "search") return { key: "page search", handler: "search", args };
       if (verb === "descendants") return { key: "page descendants", handler: "descendants", args };
       if (verb === "locate") return { key: "page locate", handler: "locate", args };
+      if (verb === "history") return { key: "page history", handler: "history", args };
+      if (verb === "revision") return { key: "page revision", handler: "revision", args };
       if (verb === "comments") {
         const sub = args[0];
         if (sub === "add" || sub === "reply" || sub === "delete") {
@@ -201,7 +213,7 @@ function resolveCommand(positionals) {
       if (verb === "append") return { key: "page append", handler: "append", args };
       if (verb === "delete") return { key: "page delete", handler: "delete", args };
       throw new UsageError(
-        `page: неизвестная подкоманда «${verb ?? ""}» (get|search|descendants|locate|comments|comment|create|edit|append|delete)`,
+        `page: неизвестная подкоманда «${verb ?? ""}» (get|search|descendants|locate|history|revision|comments|comment|create|edit|append|delete)`,
       );
     }
     case "space": {
@@ -836,6 +848,92 @@ async function cmdLocate(opts, slug, queryParts) {
   out(opts, payload, human);
 }
 
+async function cmdHistory(opts, slug) {
+  if (!slug) throw new UsageError("page history: укажите slug");
+  const pageSize = intOpt(opts, "--limit", undefined);
+  if (pageSize !== undefined) validateRevisionPageSize(pageSize);
+  const cursor = typeof opts["--cursor"] === "string" ? opts["--cursor"] : undefined;
+  const ids = "--ids" in opts ? parseRevisionIds(opts["--ids"]) : undefined;
+  const client = makeClient(opts);
+  const page = await resolvePage(client, slug, { fields: "last_revision_id" });
+  const base = `/pages/${encodeURIComponent(String(page.id))}/revisions`;
+  const fetchPage = (cur) => client.request(base + revisionQuery({ pageSize, cursor: cur, ids }));
+
+  let results;
+  let nextCursor = null;
+  if (opts["--all"]) {
+    ({ results, nextCursor } = await collectAll(fetchPage, 100, cursor));
+  } else {
+    const res = await fetchPage(cursor);
+    results = Array.isArray(res.results) ? res.results : [];
+    nextCursor = res.next_cursor ?? null;
+  }
+
+  const last = page.last_revision_id ?? null;
+  const payload = {
+    slug: page.slug ?? slug,
+    id: page.id,
+    last_revision_id: last,
+    results: results.map(revisionSummary),
+    next_cursor: nextCursor,
+  };
+  const human = () => {
+    if (!results.length) {
+      return `История пуста для «${slug}».\nПодсказка: проверьте slug или используйте \`ywiki search\`.`;
+    }
+    return results
+      .map((r) => revisionHead(r, { current: isCurrentRevision(r, last) }))
+      .join("\n");
+  };
+  out(opts, payload, human);
+}
+
+async function cmdRevision(opts, slug, revisionArg) {
+  if (!slug) throw new UsageError("page revision: укажите slug");
+  if (!revisionArg) throw new UsageError("page revision: укажите id ревизии");
+  const revisionId = parseId(revisionArg, "page revision");
+  const offset = intOpt(opts, "--offset", 0);
+  const limit = intOpt(opts, "--limit", undefined);
+  const fields = "content,attributes,last_revision_id";
+  const client = makeClient(opts);
+  const page = await client.request(
+    `/pages?slug=${encodeSlug(slug)}&revision_id=${revisionId}&fields=${encodeURIComponent(fields)}`,
+  );
+  const content = typeof page.content === "string" ? page.content : "";
+  const c = clip(content, offset, limit);
+  const revision = revisionOf(page);
+  const current = revisionId === Number(page.last_revision_id);
+  const payload = {
+    slug: page.slug ?? slug,
+    id: page.id,
+    revision_id: revisionId,
+    title: page.title ?? null,
+    current,
+    revision,
+    content: c.text,
+    truncated: c.truncated,
+    next_offset: c.truncated ? c.nextOffset : null,
+  };
+  const human = (p) => {
+    const who = p.revision?.author ? ` — ${p.revision.author}` : "";
+    const when = p.revision?.created_at ? ` (${p.revision.created_at})` : "";
+    const lines = [
+      `# ${p.title ?? p.slug}`,
+      `revision: ${p.revision_id}${who}${when}${p.current ? " — current" : ""}`,
+      `slug: ${p.slug}`,
+    ];
+    if (!content.trim()) {
+      lines.push("", "EMPTY: ревизия существует, содержимого нет");
+      return lines.join("\n");
+    }
+    lines.push("", p.content);
+    const hint = clipHint(c);
+    if (hint) lines.push("", hint);
+    return lines.join("\n");
+  };
+  out(opts, payload, human);
+}
+
 async function cmdSpaces(opts) {
   const client = makeClient(opts);
   const fetchPage = (cur) => client.request("/spaces" + (cur === undefined ? "" : `?cursor=${cur}`));
@@ -1159,6 +1257,12 @@ async function main() {
       break;
     case "locate":
       await cmdLocate(opts, resolved.args[0], resolved.args.slice(1));
+      break;
+    case "history":
+      await cmdHistory(opts, resolved.args[0]);
+      break;
+    case "revision":
+      await cmdRevision(opts, resolved.args[0], resolved.args[1]);
       break;
     case "create":
       await cmdCreate(opts, resolved.args[0]);

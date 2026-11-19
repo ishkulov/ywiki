@@ -7,10 +7,11 @@ dependency-free, token-safe, and reads-by-default.
 ## Hard rules
 
 - **Reads by default; writes are explicit.** Reads live under `page get|search|
-  descendants|locate|comments`, `page comment list|thread`, `space list`, and the
-  flat shortcuts. Mutations exist only as `page create|edit|append|delete` and
-  `page comment add|reply|delete`, and have **no** shortcuts: the write surface
-  must stay identifiable by one prefix so a permission rule can gate it.
+  descendants|locate|history|revision|comments`, `page comment list|thread`,
+  `space list`, and the flat shortcuts. Mutations exist only as
+  `page create|edit|append|delete` and `page comment add|reply|delete`, and have
+  **no** shortcuts: the write surface must stay identifiable by one prefix so a
+  permission rule can gate it.
   `ywiki api` stays `GET`-only. Do not add a mutating subcommand outside those
   verbs.
 - **Inline comments are two writes.** `inline_text` is metadata; the anchor is
@@ -47,6 +48,7 @@ dependency-free, token-safe, and reads-by-default.
 | `lib/client.mjs` | HTTP, retries, 401 self-heal, disk cache |
 | `lib/write.mjs` | pure helpers for `page create|edit|append|delete` |
 | `lib/inline.mjs` | ranges, `&[text](id)` markers, `page locate` |
+| `lib/history.mjs` | revision queries, summaries, current-revision marker |
 | `lib/comments.mjs` | comment bodies, queries, summaries |
 | `lib/output.mjs` | `EXIT` codes, `WikiError`, clipping, usage text |
 | `test/*.test.mjs` | offline tests; fixtures in `test/fixtures/` |

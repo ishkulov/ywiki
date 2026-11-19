@@ -38,6 +38,8 @@ ywiki page get <slug> [--offset N] [--limit N] [--fields a,b]
 ywiki page search <query> [--limit N] [--all] [--cursor N]
 ywiki page descendants <slug> [--limit N] [--all] [--cursor N]
 ywiki page locate <slug> <query> [--limit N]      # ranges for --inline-range
+ywiki page history <slug> [--limit N] [--all] [--ids a,b]   # revisions, newest first
+ywiki page revision <slug> <id> [--offset N] [--limit N]    # read one revision
 ywiki page comments <slug> [--limit N] [--all]    # alias of page comment list
 ywiki page comment list <slug> [--thread ID] [--inline|--page-level] \
                                 [--status resolved|unresolved] [--order asc|desc]
@@ -48,6 +50,20 @@ ywiki --help | --version
 ```
 
 Shortcuts: `get <slug>` · `search <query>` · `tree <slug>` · `spaces`.
+
+### History
+
+```bash
+ywiki page history <slug> [--limit N] [--all] [--cursor C] [--ids a,b]
+ywiki page revision <slug> <revision-id> [--offset N] [--limit N]
+```
+
+- `page history` lists revisions newest first and marks the current one
+  `← current`. `--limit` is the API `page_size` (1–50); `--cursor` is a string,
+  so `--all` follows `next_cursor` until exhausted.
+- `page revision` reads one revision's content, clipped like `page get`
+  (`--offset` continues a long page). An unknown revision id exits `5`.
+- Both are reads: they never change the page or its revision.
 
 ### Writing
 
@@ -129,6 +145,8 @@ per-read allow rules is enough. In OpenCode, the last matching rule wins:
     { "action": "shell", "resource": "ywiki page search *", "effect": "allow" },
     { "action": "shell", "resource": "ywiki page descendants *", "effect": "allow" },
     { "action": "shell", "resource": "ywiki page locate *", "effect": "allow" },
+    { "action": "shell", "resource": "ywiki page history *", "effect": "allow" },
+    { "action": "shell", "resource": "ywiki page revision *", "effect": "allow" },
     { "action": "shell", "resource": "ywiki page comments *", "effect": "allow" },
     { "action": "shell", "resource": "ywiki page comment list *", "effect": "allow" },
     { "action": "shell", "resource": "ywiki get *", "effect": "allow" },
