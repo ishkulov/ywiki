@@ -107,7 +107,7 @@ function run(args) {
     WIKI_ORGANIZATION_ID: "orgTEST",
     WIKI_CACHE_DIR: cacheDir,
   };
-  delete env.LEGACY_CREDENTIALS;
+  delete env.WIKI_CREDENTIALS;
   return new Promise((resolve) => {
     execFile(process.execPath, [BIN, ...args], { encoding: "utf8", env }, (err, stdout, stderr) => {
       resolve({ status: err && typeof err.code === "number" ? err.code : 0, stdout, stderr });

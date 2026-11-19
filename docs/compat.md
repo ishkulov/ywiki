@@ -21,9 +21,9 @@ way. This file records the mapping and the intentional differences.
 | Default output | JSON when piped, ANSI on TTY | same (`--json` / `--rich-ui=yes\|no`) |
 | Help | `$ cmd` example + annotation, `Usage`/`Commands`/`Options` | same |
 | Errors | `Error: <Title>` / detail / `Next:` | same |
-| Credential | `~/.config/legacy/<profile>/credentials.toml` (v2), `scheme=iam` | same file, never written |
-| Env token | `LEGACY_IAM_TOKEN` + `LEGACY_ORGANIZATION_ID` | same first, `WIKI_*` as aliases |
-| Refresh | on-demand; `auth login --method token` | reuse the `the legacy refresh helper` timer; one `--refresh` self-heal on 401 |
+| Credential | `~/.config/legacy/<profile>/credentials.toml` (v2), `scheme=iam` | own `~/.config/ywiki/credentials.toml` (v2), `iam` or `oauth` |
+| Env token | `LEGACY_IAM_TOKEN` + `LEGACY_ORGANIZATION_ID` | `WIKI_IAM_TOKEN`/`WIKI_TOKEN` + `WIKI_ORGANIZATION_ID` (no `LEGACY_*`) |
+| Refresh | on-demand; `auth login --method token` | lazy 401 self-heal: `yc iam create-token` or OAuth `refresh_token`; no timer |
 | Passthrough | `api <method> <path>` | `api GET <path>` (read-only subset only) |
 | Writes | `issue create/edit`, `--dry-run` | `page create/edit/append/delete`, `page comment add/reply/delete`; `--dry-run` on all |
 | Agent guidance | `skill` | `skill` |
@@ -54,6 +54,17 @@ HTTP → code: `401 → 3`, `403 → 4`, `404 → 5`, `409`/`ALREADY_INDEXING �
   `users/me`, `search`).
 - **Writes are never replayed.** A timeout or `5xx` on a write is reported as
   `unavailable` without a retry; the caller must re-read the page.
+- **Own credential and refresh.** `ywiki` does not read
+  `~/.config/legacy/legacy/credentials.toml` and does not call `the legacy refresh helper`. It
+  stores `~/.config/ywiki/credentials.toml` and refreshes lazily on `401`
+  (`yc iam create-token` for IAM, `refresh_token` for OAuth).
+- **ENV names are `WIKI_*` only.** `LEGACY_*` variables are deliberately not
+  read; rename them when migrating from `the legacy CLI`.
+- **`auth login` methods.** `browser` (default, OAuth + PKCE), `token` (paste
+  OAuth/IAM), and `iam` (`yc iam create-token`) are available. In a TTY the
+  method is prompted; outside a TTY `--method` is required. `auth status` and
+  `auth logout` manage the local file without a network call; `auth logout`
+  needs `--yes` outside a TTY.
 - **`config`** does not exist (nothing to configure).
 - **No `--ai-access-check`** — not part of the Wiki API surface.
 - **Cursor flags** (`--all`, `--cursor N`) are exposed on the read endpoints

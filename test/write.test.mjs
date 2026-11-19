@@ -99,7 +99,7 @@ function run(args, extraEnv = {}) {
     WIKI_CACHE_DIR: cacheDir,
     ...extraEnv,
   };
-  delete env.LEGACY_CREDENTIALS;
+  delete env.WIKI_CREDENTIALS;
   return new Promise((resolve) => {
     execFile(process.execPath, [BIN, ...args], { encoding: "utf8", env }, (err, stdout, stderr) => {
       resolve({ status: err && typeof err.code === "number" ? err.code : 0, stdout, stderr });

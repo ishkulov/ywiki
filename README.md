@@ -1,9 +1,9 @@
 # ywiki
 
-CLI for **Yandex Wiki**, for people and agents. It reuses the existing legacy IAM
-credential (`~/.config/legacy/legacy/credentials.toml`, schema v2) and the
-`the legacy refresh helper` refresh timer — it does **not** create a second credential,
-timer, or token source.
+CLI for **Yandex Wiki**, for people and agents. It owns its credential and auth
+flow: the credential lives in `~/.config/ywiki/credentials.toml` (schema v2),
+and refresh is lazy and handled by `ywiki` itself. It does not read the shared
+legacy credential and does not call `the legacy refresh helper`.
 
 Reads are the default. Mutations are explicit and confined to the page and
 comment commands (`page create|edit|append|delete`, `page comment
@@ -21,11 +21,17 @@ npm install -g .            # in a checkout of this repo
 npm install -g <git-url>
 ```
 
-That puts a `ywiki` executable on `PATH` (nvm's global bin). Verify:
+That puts a `ywiki` executable on `PATH` (nvm's global bin). Authenticate, then
+verify:
 
 ```bash
+ywiki auth login --method iam --organization-id <org>   # cloud/federated
 ywiki whoami
 ```
+
+In a TTY, `auth login` asks for a method (`browser` by default); outside a TTY,
+pass `--method` explicitly. For a cloud or federated account use `--method iam`
+or `--method token`; see [Auth](#auth).
 
 ## Usage
 
@@ -46,6 +52,9 @@ ywiki page comment list <slug> [--thread ID] [--inline|--page-level] \
                                 [--status resolved|unresolved] [--order asc|desc]
 ywiki space list [--all]
 ywiki api GET <path> [--header "Name: value"]   # read-only passthrough
+ywiki auth login [--method browser|token|iam] [--organization-id ID] [--client-id ID]
+ywiki auth status [--json]           # local credential info, no network
+ywiki auth logout --yes              # remove the local credential file
 ywiki skill                          # bundled agent guidance
 ywiki --help | --version
 ```
@@ -117,9 +126,10 @@ ywiki page comment delete <slug> <comment-id> [--yes] [--dry-run]
 
 Global flags: `--json`, `--rich-ui=yes|no`, `--no-cache`,
 `--timeout-ms N` (alias `--timeout S`), `--no-input`.
-Environment: `LEGACY_CREDENTIALS`, `LEGACY_AUTH`, `WIKI_CACHE_DIR`, `WIKI_NO_CACHE`,
-`LEGACY_IAM_TOKEN`, `LEGACY_ORGANIZATION_ID` (and `WIKI_*` aliases),
-`WIKI_BASE_URL`.
+Environment: `WIKI_IAM_TOKEN`, `WIKI_TOKEN`, `WIKI_ORGANIZATION_ID`,
+`WIKI_CREDENTIALS`, `WIKI_OAUTH_CLIENT_ID`, `WIKI_CACHE_DIR`, `WIKI_NO_CACHE`,
+`WIKI_BASE_URL`, `WIKI_YC_BIN`, `WIKI_YC_PROFILE`. `LEGACY_*` variables are not
+read.
 
 Output: JSON when stdout is not a TTY (agents, pipes, CI); rich text on a TTY.
 `--json` forces JSON, `--rich-ui=yes|no` overrides both ways.
@@ -172,22 +182,65 @@ A new read verb without its own rule is denied — the split fails closed.
 
 ## Auth
 
-Auth is delegated to the existing infrastructure:
+`ywiki` owns its credential; no `the legacy CLI` file or timer is involved.
 
-- Credential: `~/.config/legacy/legacy/credentials.toml` (override with `LEGACY_CREDENTIALS`).
-- Header: `Authorization: Bearer <IAM>`; org id goes to `X-Cloud-Org-Id`
-  (numeric org → `X-Org-Id`).
-- On a `401`, `ywiki` performs **one** self-heal: it runs
-  `the legacy refresh helper --refresh` (override with `LEGACY_AUTH`), then retries. Refreshes
-  are serialised across processes (lock file) with a 60 s cooldown.
+- Credential: `~/.config/ywiki/credentials.toml` (schema v2; override with
+  `WIKI_CREDENTIALS`). Written atomically with mode `0600` in a `0700` directory.
+- Header: `Authorization: Bearer <IAM>` for `scheme=iam`, or
+  `Authorization: OAuth <token>` for `scheme=oauth`. The org id goes to
+  `X-Cloud-Org-Id` (numeric org → `X-Org-Id`).
+- ENV overrides take precedence over the file and are never written back:
+  `WIKI_IAM_TOKEN` (IAM) or `WIKI_TOKEN` (OAuth), plus `WIKI_ORGANIZATION_ID`.
+  `LEGACY_*` variables are intentionally ignored. When migrating from
+  `the legacy CLI`, rename `LEGACY_IAM_TOKEN` → `WIKI_IAM_TOKEN` and
+  `LEGACY_ORGANIZATION_ID` → `WIKI_ORGANIZATION_ID`.
 
-The token is read from the file in-process only, is never passed through
-`argv`, and is masked everywhere it could appear in output or logs.
+### Login methods
+
+In a TTY, `auth login` asks for a method (browser default). Outside a TTY,
+`--method` is required.
+
+```bash
+ywiki auth login --method browser --organization-id <org> [--client-id ID]
+ywiki auth login --method token   --organization-id <org>
+ywiki auth login --method iam     --organization-id <org> [--yc-profile P]
+```
+
+- `browser` (default) — OAuth 2.0 Authorization Code + PKCE. The callback stays
+  on `127.0.0.1` (ports `21332`, `24816`, `28934`; path `/callback`); the token
+  is exchanged server-side and never enters `argv`. The token request does not
+  send `redirect_uri`, matching `the legacy CLI`. It needs a Wiki OAuth app client id
+  (`--client-id` or `WIKI_OAUTH_CLIENT_ID`). Without one, `auth login` explains
+  how to create it and suggests `--method iam`. For a cloud organization the
+  OAuth page may not work; `--method iam` is the fallback.
+- `token` — paste an OAuth or IAM token on stdin or a hidden TTY prompt. The
+  scheme is detected from the token prefix and confirmed against Wiki.
+- `iam` — run `yc --no-browser iam create-token`, validate the token against
+  `GET /users/me`, and store it. This is the practical path for cloud and
+  federated accounts.
+
+### Refresh and lifecycle
+
+- On a `401`, `ywiki` makes **one** self-heal attempt for idempotent reads:
+  IAM is renewed with `yc iam create-token`; OAuth is renewed with its
+  `refresh_token` when present. Otherwise re-run `ywiki auth login`.
+- Refreshes are single-flight across processes (lock file) and cooldown-guarded
+  (60 s); there is no timer. Writes are never replayed after a `401`, timeout,
+  or `5xx`.
+- `ywiki auth status` reports the path, scheme, org, age, token prefix and
+  whether a refresh token exists — without a network call.
+- `ywiki auth logout --yes` removes only the local credential file. Outside a
+  TTY, `--yes` is required; in a TTY it asks for confirmation. It refuses while
+  `WIKI_IAM_TOKEN` or `WIKI_TOKEN` is set. The server-side token is not revoked
+  and remains valid until it expires.
+
+The token is read in-process only, never through `argv`, and is masked
+everywhere it could appear in output or logs.
 
 ## Tests
 
-Offline — the real credential is never read, and the real `the legacy refresh helper` is
-never executed (stubs via `LEGACY_AUTH`):
+Offline — the real credential is never read, no network call is made, and the
+real `yc` is never executed (a stub is used via `WIKI_YC_BIN`):
 
 ```bash
 npm test
@@ -212,8 +265,8 @@ npm test
   `GET`-only, so writes cannot slip through a read prefix.
 - Writes are never retried automatically: a timeout or `5xx` on a write means the
   outcome is unknown — re-read the page before retrying.
-- Never read the credential file directly and never call the Wiki API with
-  `curl`; keep the token inside `ywiki`.
+- Never read `~/.config/ywiki/credentials.toml` directly and never call the Wiki
+  API with `curl`; keep the token inside `ywiki`.
 - Never invent a slug — `ywiki search` first, then cite the slug you used.
 
 ## License

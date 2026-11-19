@@ -9,16 +9,18 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { createServer } from "node:http";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const BIN = join(HERE, "..", "bin", "ywiki.mjs");
+const YC = join(HERE, "fixtures", "stub-yc.mjs");
 
 const IAM_PREFIX = ["t", "1", "."].join("");
 const IAM = IAM_PREFIX + "B".repeat(40);
+const STUB_TOKEN = IAM_PREFIX + "A".repeat(40);
 
 /** @type {import("node:http").Server} */
 let server;
@@ -65,6 +67,9 @@ before(async () => {
           prev_cursor: null,
         });
       }
+      if (req.method === "GET" && url.pathname === "/v1/users/me") {
+        return send(200, { username: "alice", display_name: "Alice" });
+      }
       if (req.method === "GET" && url.pathname === "/v1/pages") {
         const slug = url.searchParams.get("slug");
         if (slug === "no-comments") return send(200, { id: 7, slug, title: "Без комментов", page_type: "wysiwyg", content: "" });
@@ -97,7 +102,7 @@ function run(args, extraEnv = {}) {
     WIKI_CACHE_DIR: cacheDir,
     ...extraEnv,
   };
-  delete env.LEGACY_CREDENTIALS;
+  if (!("WIKI_CREDENTIALS" in extraEnv)) delete env.WIKI_CREDENTIALS;
   return new Promise((resolve) => {
     execFile(process.execPath, [BIN, ...args], { encoding: "utf8", env }, (err, stdout, stderr) => {
       resolve({ status: err && typeof err.code === "number" ? err.code : 0, stdout, stderr });
@@ -261,5 +266,101 @@ test("no output ever contains the full token", async () => {
     const r = await run(args);
     assert.ok(!r.stdout.includes(IAM), `stdout leaked token for ${args.join(" ")}`);
     assert.ok(!r.stderr.includes(IAM), `stderr leaked token for ${args.join(" ")}`);
+  }
+});
+
+test("auth login --method iam stores a credential; status and logout work offline", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "ywiki-auth-cli-"));
+  const cred = join(dir, "credentials.toml");
+  const noEnv = { WIKI_IAM_TOKEN: "", WIKI_TOKEN: "", WIKI_CREDENTIALS: cred };
+  try {
+    const login = await run(
+      ["auth", "login", "--method", "iam", "--organization-id", "orgTEST", "--yc-bin", YC],
+      { ...noEnv, STUB_YC_TOKEN: STUB_TOKEN, STUB_YC_HANG: "", STUB_YC_FAIL: "" },
+    );
+    assert.equal(login.status, 0, login.stderr);
+    const payload = JSON.parse(login.stdout);
+    assert.equal(payload.authenticated, true);
+    assert.equal(payload.scheme, "iam");
+    assert.equal(payload.organization, "orgTEST");
+    assert.ok(!login.stdout.includes(STUB_TOKEN), "login must not print the token");
+
+    const text = readFileSync(cred, "utf8");
+    assert.match(text, /version = 2/);
+    assert.match(text, /scheme = "iam"/);
+    assert.ok(text.includes(STUB_TOKEN), "credential file stores the token");
+
+    const st = await run(["auth", "status", "--json"], noEnv);
+    assert.equal(st.status, 0, st.stderr);
+    const s = JSON.parse(st.stdout);
+    assert.equal(s.present, true);
+    assert.equal(s.source, "file");
+    assert.equal(s.scheme, "iam");
+    assert.equal(s.org, "orgTEST");
+    assert.ok(!st.stdout.includes(STUB_TOKEN), "status must not print the token");
+
+    const lo = await run(["auth", "logout", "--yes", "--json"], noEnv);
+    assert.equal(lo.status, 0, lo.stderr);
+    assert.equal(JSON.parse(lo.stdout).removed, true);
+    assert.ok(!existsSync(cred), "logout removes the credential file");
+
+    const st2 = await run(["auth", "status", "--json"], noEnv);
+    assert.equal(st2.status, 0, st2.stderr);
+    assert.equal(JSON.parse(st2.stdout).present, false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("auth login refuses to write while an ENV token is active", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "ywiki-auth-cli-"));
+  const cred = join(dir, "credentials.toml");
+  try {
+    const r = await run(
+      ["auth", "login", "--method", "iam", "--organization-id", "orgTEST", "--yc-bin", YC],
+      { WIKI_CREDENTIALS: cred },
+    );
+    assert.equal(r.status, 2);
+    assert.match(r.stderr, /снимите переменную/);
+    assert.ok(!existsSync(cred), "no credential file is written");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("auth login without --method needs a TTY (non-interactive exits 2)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "ywiki-auth-cli-"));
+  const cred = join(dir, "credentials.toml");
+  try {
+    const r = await run(["auth", "login", "--organization-id", "orgTEST"], {
+      WIKI_IAM_TOKEN: "",
+      WIKI_TOKEN: "",
+      WIKI_CREDENTIALS: cred,
+    });
+    assert.equal(r.status, 2);
+    assert.match(r.stderr, /укажите --method/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("auth logout without --yes needs a TTY and keeps the file", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "ywiki-auth-cli-"));
+  const cred = join(dir, "credentials.toml");
+  const noEnv = { WIKI_IAM_TOKEN: "", WIKI_TOKEN: "", WIKI_CREDENTIALS: cred };
+  try {
+    const login = await run(
+      ["auth", "login", "--method", "iam", "--organization-id", "orgTEST", "--yc-bin", YC],
+      { ...noEnv, STUB_YC_TOKEN: STUB_TOKEN, STUB_YC_HANG: "", STUB_YC_FAIL: "" },
+    );
+    assert.equal(login.status, 0, login.stderr);
+    assert.ok(existsSync(cred));
+
+    const r = await run(["auth", "logout"], noEnv);
+    assert.equal(r.status, 2);
+    assert.match(r.stderr, /нужно --yes/);
+    assert.ok(existsSync(cred), "credential is kept without confirmation");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });

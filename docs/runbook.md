@@ -1,16 +1,17 @@
 # Runbook: `ywiki` — Yandex Wiki access
 
-`ywiki` is a zero-dependency Node CLI for Yandex Wiki. It reuses the **existing**
-legacy IAM credential and the **existing** `the legacy refresh helper` timer; it does not create
-a second credential, timer, or token source. Reads are the default; mutations go
-only through the explicit `page create|edit|append|delete` and
+`ywiki` is a zero-dependency Node CLI for Yandex Wiki. It owns its credential
+(`~/.config/ywiki/credentials.toml`) and its refresh path; it does not read the
+legacy shared credential and does not call `the legacy refresh helper`. Reads are the default;
+mutations go only through the explicit `page create|edit|append|delete` and
 `page comment add|reply|delete` commands.
 
 ## Install
 
 ```bash
 npm install -g .          # from a checkout of this repo
-ywiki whoami              # verify: login, scheme=iam, org, token prefix
+ywiki auth login --method iam --organization-id <org>   # cloud/federated
+ywiki whoami              # verify: login, scheme, org, token prefix
 ```
 
 Requires Node.js ≥ 20 (on `PATH`; nvm's global bin). No `npm install`
@@ -99,51 +100,78 @@ unavailable (retry later).
 
 ## Token lifecycle
 
-Wiki uses the same IAM token as Tracker (`Bearer`, `X-Cloud-Org-Id`), refreshed
-by `the legacy refresh helper.timer` every 10 h (TTL ~12 h). Nothing extra to run.
+`ywiki` owns its credential and refresh path. There is no timer: refresh is lazy
+and triggered by a `401` on an idempotent read.
 
-- On a `401`, `ywiki` runs **one** self-heal: `the legacy refresh helper --refresh`
-  (which only updates the credential; no Tracker call, no browser), then retries.
-- Refreshes are serialised across processes (lock file) with a 60 s cooldown.
-- If a read returns exit `3` (unauthenticated), refresh the token manually:
+- Credential: `~/.config/ywiki/credentials.toml` (schema v2, mode `0600`).
+- IAM (`scheme=iam`): renewed with `yc --no-browser iam create-token`.
+- OAuth (`scheme=oauth`): renewed with the stored `refresh_token` when present;
+  otherwise `ywiki auth login` is required.
+- Refreshes are single-flight across processes (lock file) and cooldown-guarded
+  (60 s). A failed refresh leaves the old credential in place.
+- `ywiki auth logout --yes` removes only the local file. Outside a TTY, `--yes`
+  is required; the server-side token remains valid until it expires.
+- If a read returns exit `3` (unauthenticated), refresh manually:
 
 ```bash
-the legacy refresh helper --refresh
+ywiki auth login --method iam --organization-id <org>   # or --method browser/token
 ```
+
+### Login methods
+
+- `browser` — OAuth 2.0 Authorization Code + PKCE. Callback ports `21332`,
+  `24816`, `28934`; path `/callback`. The token request does not send
+  `redirect_uri`, matching `the legacy CLI`. Needs a Wiki OAuth app client id.
+- `token` — paste an OAuth or IAM token on stdin or a hidden TTY prompt. Prints
+  the token page when a client id is configured, otherwise a generic OAuth link
+  and IAM instructions.
+- `iam` — `yc --no-browser iam create-token`, validated against `GET /users/me`.
+
+In a TTY, `auth login` asks for a method (browser default). Outside a TTY,
+`--method` is required. For a cloud organization the OAuth page may not work;
+use `--method iam`. An IAM token lives about 12 hours and is refreshed lazily.
 
 ## Verify / troubleshoot
 
 ```bash
-npm test                  # full suite (offline; stub LEGACY_AUTH)
+npm test                  # full suite (offline; stub yc via WIKI_YC_BIN)
+ywiki auth status         # local credential: path, scheme, org, age, token prefix
 ywiki whoami              # identity + credential age + token prefix
 ywiki spaces              # quick read-only reachability check
-systemctl --user status the legacy refresh helper.timer --no-pager   # timer state
 ```
 
-- Exit `3` with a fresh credential → check the timer; it may have failed.
+- Exit `3` with a fresh credential → the token is invalid or expired; run
+  `ywiki auth login` again. Check `ywiki auth status` first.
 - Exit `4` → the signed-in user genuinely lacks access; do not retry, ask the
   page owner.
 - Exit `6` → version conflict or index warming up (`ALREADY_INDEXING`); for a
   write, re-read the page and retry; for a search, retry shortly.
 - Exit `8` after a write → the request may have been applied; re-read the page
   before retrying. Writes are never replayed automatically.
-- Cache lives in `~/.cache/legacy/wiki/` (TTL 60 s; `WIKI_NO_CACHE=1` disables it;
+- Cache lives in `~/.cache/ywiki/` (TTL 60 s; `WIKI_NO_CACHE=1` disables it;
   `WIKI_CACHE_DIR` relocates it).
 
 ## Environment overrides
 
 | Variable | Effect |
 |---|---|
-| `LEGACY_CREDENTIALS` | credential file path (default `~/.config/legacy/legacy/credentials.toml`) |
-| `LEGACY_AUTH` | refresh script path (default `~/.local/bin/the legacy refresh helper`) |
+| `WIKI_CREDENTIALS` | credential file path (default `~/.config/ywiki/credentials.toml`) |
+| `WIKI_IAM_TOKEN` | IAM token; overrides the file (scheme=iam) |
+| `WIKI_TOKEN` | OAuth token; overrides the file (scheme=oauth) |
+| `WIKI_ORGANIZATION_ID` | organization id for ENV tokens |
+| `WIKI_OAUTH_CLIENT_ID` | default OAuth client id for browser/token login |
 | `WIKI_CACHE_DIR` | cache directory |
 | `WIKI_NO_CACHE=1` | disable the disk cache |
-| `LEGACY_IAM_TOKEN`, `LEGACY_ORGANIZATION_ID` | use these instead of the file (same vars as `the legacy CLI`) |
-| `WIKI_IAM_TOKEN`, `WIKI_ORGANIZATION_ID` | fallback aliases for the above |
 | `WIKI_BASE_URL` | API base (tests) |
+| `WIKI_YC_BIN` | `yc` binary (default `yc`; tests use a stub) |
+| `WIKI_YC_PROFILE` | `yc` profile for `iam create-token` |
+
+`LEGACY_*` variables are not read. Migrating from `the legacy CLI`: rename
+`LEGACY_IAM_TOKEN` → `WIKI_IAM_TOKEN` and `LEGACY_ORGANIZATION_ID` →
+`WIKI_ORGANIZATION_ID`.
 
 ## Safety rules
 
-- Never read `~/.config/legacy/legacy/credentials.toml` directly and never call the
-  Wiki API via `curl`; the token stays inside `ywiki`.
+- Never read `~/.config/ywiki/credentials.toml` directly and never call the Wiki
+  API via `curl`; the token stays inside `ywiki`.
 - Never invent a slug — `ywiki search` first, then cite the slug you used.

@@ -1,17 +1,18 @@
 #!/usr/bin/env node
-// ywiki — read-only CLI for Yandex Wiki, using the existing legacy IAM credential.
+// ywiki — CLI for Yandex Wiki with its own credential and auth flow.
 //
 // Command tree, output modes, error envelope and exit codes mirror `the legacy CLI`
 // so agents and scripts can treat both tools the same way. The token is read
-// from the credential file by lib/credentials.mjs, never passed via argv, and
-// is masked everywhere it could appear in output.
+// from ~/.config/ywiki/credentials.toml (or WIKI_* env), never passed via argv,
+// and is masked everywhere it could appear in output.
 
 import { readFileSync } from "node:fs";
 import { createInterface } from "node:readline/promises";
 
-import { credentials, credentialPath, redact, AuthError } from "../lib/credentials.mjs";
+import { credentials, credentialPath, hasEnvCredential, redact, AuthError } from "../lib/credentials.mjs";
 import { createClient } from "../lib/client.mjs";
 import { refreshOnce } from "../lib/refresh.mjs";
+import { login, logout, organizationKind, readSecret, status as authStatus, tokenPageUrl } from "../lib/auth.mjs";
 import {
   clip,
   clipHint,
@@ -91,6 +92,13 @@ const VALUE_FLAGS = new Set([
   "--order",
   "--ids",
   "--context",
+  "--method",
+  "--organization-id",
+  "--client-id",
+  "--scope",
+  "--callback-timeout-ms",
+  "--yc-profile",
+  "--yc-bin",
 ]);
 const BOOL_FLAGS = new Set([
   "--json",
@@ -110,6 +118,7 @@ const BOOL_FLAGS = new Set([
   "--anchor-fallback",
   "--inline",
   "--page-level",
+  "--no-open",
 ]);
 /** Short aliases, mirroring the legacy CLI's top-level `-h, --help` / `-v, --version`. */
 const SHORT_ALIASES = { "-h": "--help", "-v": "--version" };
@@ -234,6 +243,13 @@ function resolveCommand(positionals) {
       return { key: "spaces", handler: "spaces", args: rest };
     case "api":
       return { key: "api", handler: "api", args: rest };
+    case "auth": {
+      const sub = rest[0];
+      if (sub === "login") return { key: "auth login", handler: "authLogin", args: rest.slice(1) };
+      if (sub === "logout") return { key: "auth logout", handler: "authLogout", args: rest.slice(1) };
+      if (sub === "status") return { key: "auth status", handler: "authStatus", args: rest.slice(1) };
+      throw new UsageError(`auth: неизвестная подкоманда ${sub ? `«${sub}»` : ""} (login|logout|status)`);
+    }
     case "skill":
       return { key: "skill", handler: "skill", args: rest };
     default:
@@ -344,6 +360,19 @@ async function confirm(question) {
   }
 }
 
+/** @returns {Promise<"browser" | "iam" | "token">} */
+async function chooseLoginMethod() {
+  const rl = createInterface({ input: process.stdin, output: process.stderr });
+  try {
+    const answer = (await rl.question("Метод входа [browser/iam/token] (browser): ")).trim().toLowerCase();
+    if (!answer) return "browser";
+    if (answer === "browser" || answer === "iam" || answer === "token") return answer;
+    throw new UsageError(`неизвестный метод входа: ${answer} (browser, iam, token)`);
+  } finally {
+    rl.close();
+  }
+}
+
 /** Print helper: JSON payload or rendered human text (TTY-aware). */
 function out(opts, payload, human) {
   emit(payload, human, { json: Boolean(opts["--json"]), richUi: opts["--rich-ui"] });
@@ -387,7 +416,7 @@ async function cmdWhoami(opts) {
   const numericOrg = /^\d+$/.test(String(c.org));
   const payload = {
     identity: { login: me.username, display: me.display_name ?? null },
-    contour: c.org === "" ? null : "legacy",
+    contour: c.org === "" ? null : "wiki",
     credentialSource: c.mtimeMs ? "file" : "env",
     scheme: c.scheme,
     organizationId: c.org,
@@ -399,7 +428,7 @@ async function cmdWhoami(opts) {
   // Rich form mirrors the legacy CLI's `✓ Authenticated as …` block.
   const human = (p) => [
     `✓ Authenticated as ${p.identity.login}`,
-    `  Contour: ${p.contour ?? "legacy"}`,
+    `  Contour: ${p.contour ?? "wiki"}`,
     `  Credential source: ${p.credentialSource}`,
     `  Credential scheme: ${p.scheme}`,
     `  Organization: ${p.organizationId} (${p.organizationKind})`,
@@ -408,6 +437,133 @@ async function cmdWhoami(opts) {
     `  Token: ${p.token}`,
   ].join("\n");
   out(opts, payload, human);
+}
+
+async function cmdAuthLogin(opts) {
+  if (hasEnvCredential()) {
+    throw new UsageError(
+      "активен WIKI_IAM_TOKEN или WIKI_TOKEN; снимите переменную окружения, чтобы сохранить файл credential",
+    );
+  }
+  const clientId = opts["--client-id"] || process.env.WIKI_OAUTH_CLIENT_ID || "";
+  let method = opts["--method"];
+  if (!method) {
+    if (opts["--no-input"] || !process.stdin.isTTY) {
+      throw new UsageError("auth login: укажите --method browser|iam|token (интерактивный выбор недоступен)");
+    }
+    method = await chooseLoginMethod();
+  }
+  const org = opts["--organization-id"] || process.env.WIKI_ORGANIZATION_ID || "";
+  const timeoutMs = timeoutFrom(opts);
+  const callbackTimeoutMs = opts["--callback-timeout-ms"] ? Number(opts["--callback-timeout-ms"]) : undefined;
+  if (!org) throw new UsageError("auth login: нужен --organization-id или WIKI_ORGANIZATION_ID");
+
+  if (method === "token") {
+    const page = tokenPageUrl({ clientId });
+    if (page) {
+      process.stderr.write(`Откройте страницу и вставьте токен:\n${page}\n`);
+    } else {
+      process.stderr.write("Откройте https://oauth.yandex.ru/ и создайте приложение с доступом к Wiki API,\n");
+      process.stderr.write("либо используйте IAM-токен. Вставьте токен:\n");
+    }
+  }
+
+  if (method === "browser" && organizationKind(org) === "cloud") {
+    process.stderr.write("Для cloud organization OAuth-страница может не работать; при ошибке используйте --method iam.\n");
+  }
+
+  let result;
+  if (method === "browser") {
+    result = await login({
+      method,
+      org,
+      clientId,
+      scope: opts["--scope"],
+      noOpen: Boolean(opts["--no-open"]),
+      timeoutMs,
+      callbackTimeoutMs,
+      onAuthorizeUrl: (url) => process.stderr.write(`Откройте URL для входа:\n${url}\n`),
+    });
+  } else if (method === "token") {
+    const token = await readSecret({ noInput: Boolean(opts["--no-input"]) });
+    result = await login({ method, token, org, timeoutMs });
+  } else if (method === "iam") {
+    result = await login({
+      method,
+      org,
+      timeoutMs,
+      ycTimeoutMs: timeoutMs,
+      ycProfile: opts["--yc-profile"] || process.env.WIKI_YC_PROFILE,
+      ycBin: opts["--yc-bin"] || process.env.WIKI_YC_BIN,
+    });
+  } else {
+    throw new UsageError(`auth login: неизвестный метод «${method}» (browser|token|iam)`);
+  }
+
+  if (result.creds.scheme === "iam") {
+    process.stderr.write("IAM-токен действует около 12 часов; ywiki обновит его лениво при 401.\n");
+  }
+
+  const payload = {
+    authenticated: true,
+    method,
+    scheme: result.creds.scheme,
+    organization: result.creds.org,
+    organizationKind: organizationKind(result.creds.org),
+    credential: result.path,
+    identity: result.identity,
+  };
+  const human = (p) => [
+    `✓ Аутентификация выполнена (${p.method}, ${p.scheme})`,
+    `  Организация: ${p.organization} (${p.organizationKind})`,
+    `  Credential: ${p.credential}`,
+    `  Проверка: ywiki whoami`,
+  ].join("\n");
+  out(opts, payload, human);
+}
+
+async function cmdAuthLogout(opts) {
+  if (!opts["--yes"]) {
+    if (opts["--no-input"] || !process.stdin.isTTY) {
+      throw new UsageError("auth logout: нужно --yes (интерактивное подтверждение недоступно)");
+    }
+    const ok = await confirm("Удалить локальный credential? [y/N] ");
+    if (!ok) {
+      process.stderr.write("Отменено.\n");
+      return;
+    }
+  }
+  const result = logout();
+  if (result.removed) {
+    process.stderr.write("Локальный credential удалён; серверный токен остаётся действительным до истечения.\n");
+  }
+  const payload = {
+    loggedOut: true,
+    removed: result.removed,
+    credential: result.path,
+  };
+  const human = (p) =>
+    p.removed
+      ? `✓ Локальный credential удалён: ${p.credential}`
+      : `Локальный credential не найден: ${p.credential}`;
+  out(opts, payload, human);
+}
+
+async function cmdAuthStatus(opts) {
+  const s = authStatus();
+  const human = (p) => {
+    if (!p.present) return `Credential не найден: ${p.path}\n  Выполните: ywiki auth login`;
+    const lines = [
+      `✓ Credential: ${p.source === "env" ? "переменная окружения" : p.path}`,
+      `  Схема: ${p.scheme}`,
+      `  Организация: ${p.org} (${p.organizationKind})`,
+      `  Токен: ${p.tokenPrefix}`,
+    ];
+    if (p.ageSeconds !== null) lines.push(`  Возраст: ${Math.round(p.ageSeconds / 60)} мин`);
+    if (p.hasRefreshToken) lines.push("  Refresh token: есть");
+    return lines.join("\n");
+  };
+  out(opts, s, human);
 }
 
 async function cmdGet(opts, slug) {
@@ -1245,7 +1401,7 @@ async function main() {
 
   if (opts["--version"]) {
     if (opts["--json"]) {
-      process.stdout.write(JSON.stringify({ version: VERSION, contour: "legacy" }) + "\n");
+      process.stdout.write(JSON.stringify({ version: VERSION, contour: "wiki" }) + "\n");
     } else {
       line(`ywiki ${VERSION}`);
     }
@@ -1276,6 +1432,15 @@ async function main() {
   switch (resolved.handler) {
     case "whoami":
       await cmdWhoami(opts);
+      break;
+    case "authLogin":
+      await cmdAuthLogin(opts);
+      break;
+    case "authLogout":
+      await cmdAuthLogout(opts);
+      break;
+    case "authStatus":
+      await cmdAuthStatus(opts);
       break;
     case "get":
       await cmdGet(opts, resolved.args[0]);

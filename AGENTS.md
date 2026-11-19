@@ -22,9 +22,12 @@ dependency-free, token-safe, and reads-by-default.
   outcome is unknown: do not auto-retry; tell the caller to re-read the page.
   A rejected request (`401`) may be retried after refresh, since it has no side
   effects. Only idempotent reads are cached; a successful write clears the cache.
-- **One credential, one timer.** Reuse `~/.config/legacy/legacy/credentials.toml` and the
-  existing `the legacy refresh helper` timer. Never write the credential file, and never
-  create a second credential, timer, or token source.
+- **One Wiki credential, no timer.** `ywiki` owns
+  `~/.config/ywiki/credentials.toml` (schema v2). It does not read the shared legacy
+  credential and does not call `the legacy refresh helper`. Refresh is lazy and single-flight:
+  IAM via `yc iam create-token`, OAuth via the stored `refresh_token`. Do not add
+  a timer or a second token source. Writes to the credential file go through
+  `writeCredential()` only.
 - **The token stays inside `ywiki`.** Read it in-process only; never via `argv`,
   never in stdout/stderr/logs/commits, never in cache files. `redact()`
   (`lib/credentials.mjs`) is the single choke point; a 6-char prefix is the only
@@ -43,8 +46,10 @@ dependency-free, token-safe, and reads-by-default.
 | Path | Role |
 |---|---|
 | `bin/ywiki.mjs` | argv parsing, subcommand dispatch, exit codes |
-| `lib/credentials.mjs` | credential load, auth headers, `redact()` |
-| `lib/refresh.mjs` | single-flight `the legacy refresh helper --refresh` + cooldown |
+| `lib/credentials.mjs` | credential load/store, auth headers, `redact()` |
+| `lib/auth.mjs` | `auth login|logout|status`, `yc` runner, token validation |
+| `lib/oauth.mjs` | PKCE, authorize URL, loopback callback, token exchange/refresh |
+| `lib/refresh.mjs` | lazy 401 refresh: `yc`/OAuth, single-flight + cooldown |
 | `lib/client.mjs` | HTTP, retries, 401 self-heal, disk cache |
 | `lib/write.mjs` | pure helpers for `page create|edit|append|delete` |
 | `lib/inline.mjs` | ranges, `&[text](id)` markers, `page locate` |
@@ -57,9 +62,10 @@ dependency-free, token-safe, and reads-by-default.
 ## Tests
 
 `npm test` (i.e. `node --test 'test/*.test.mjs'`) must be green and must run
-offline: credentials come from a tmp `LEGACY_CREDENTIALS`, and the real
-`the legacy refresh helper` is replaced by a stub via `LEGACY_AUTH`. The real credential file is
-never read. Write fixtures and stubs before the first test.
+offline: credentials come from a tmp `WIKI_CREDENTIALS`, the real `yc` is
+replaced by a stub via `WIKI_YC_BIN`, and HTTP is stubbed with `fetchImpl`. The
+real credential file is never read and no network call is made. Write fixtures
+and stubs before the first test.
 
 > Node 24's `node --test test/` (directory argument) is broken — keep the quoted
 > glob form used in `package.json`.

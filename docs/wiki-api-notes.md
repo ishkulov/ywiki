@@ -1,25 +1,27 @@
 # Yandex Wiki API — surface notes
 
-Status: **read and write endpoints confirmed against the live API** with the
-existing legacy credential (write check done on a disposable page in `a disposable test page`).
-No page content is reproduced in this file.
+Status: **read and write endpoints confirmed against the live API** (write check
+done on a disposable page in `a disposable test page`). No page content is reproduced in this
+file.
 
-Probe environment: Node 24.18.0, token read from
-`~/.config/legacy/legacy/credentials.toml` into process memory only; only HTTP status
-codes and response *shapes* were printed. Token never entered argv and was never
-printed in full.
+The original probe used the legacy shared credential; `ywiki` now owns its
+credential (`~/.config/ywiki/credentials.toml`) and refresh path. The endpoint
+shapes below are unchanged. The probe read the token into process memory only;
+only HTTP status codes and response *shapes* were printed. The token never
+entered argv and was never printed in full.
 
 ## 1. Scheme
 
-The stored credential is `version = 2`, `scheme = "iam"`, with the legacy IAM
-token prefix, `organization_id` non-numeric (20 chars).
+The probe credential was `version = 2`, `scheme = "iam"`, with the IAM token
+prefix and a non-numeric `organization_id` (20 chars).
 
 **Result: `scheme = "iam"` — confirmed.** Requests with
 `Authorization: Bearer <IAM-token>` returned `200 OK` on multiple endpoints.
-No `401`/`403` was observed. The existing `the legacy refresh helper` timer is therefore
-sufficient for Wiki as well; no separate refresh source is needed.
+No `401`/`403` was observed. `ywiki` now refreshes IAM lazily with
+`yc iam create-token`; the shared `the legacy refresh helper` timer is no longer involved.
 - `Authorization: Bearer <token>` — IAM (used here, confirmed).
-- `Authorization: OAuth <token>` — OAuth 2.0 (not needed, not exercised).
+- `Authorization: OAuth <token>` — OAuth 2.0 (supported by `ywiki`; not exercised
+  in the original probe).
 - Service accounts are **not allowed** for the Wiki API (docs); user account only.
 
 ## 2. Headers
