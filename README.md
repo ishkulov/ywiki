@@ -29,7 +29,7 @@ ywiki whoami
 ywiki whoami                       # login, scheme, org, credential age, token prefix
 ywiki get <slug> [--offset N] [--limit N]
 ywiki search <query> [--limit N]
-ywiki tree <slug> [--depth N] [--limit N]
+ywiki tree <slug> [--limit N]
 ywiki spaces
 ywiki --help | --version
 ```
@@ -81,6 +81,7 @@ npm test
 - [`docs/runbook.md`](docs/runbook.md) — operations, troubleshooting, token lifecycle.
 - [`docs/wiki-api-notes.md`](docs/wiki-api-notes.md) — confirmed Wiki API
   surface (endpoints, headers, error taxonomy) from live reconnaissance.
+- [`docs/plan.md`](docs/plan.md) — the original v2 build plan (historical).
 
 ## Safety
 

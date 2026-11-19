@@ -104,9 +104,9 @@ proxy handling is required in the tool code. Node 24.18.0 supports
 ## 6. Consequences for the CLI
 
 - **`ywiki get`**: `GET /v1/pages?slug=…&fields=content,attributes,last_revision_id`.
-- **`ywiki search` / `ywiki tree`**: use `POST /v1/search` for full-text and
-  `GET /v1/pages/descendants?slug=…&page_size=…` for navigation. Both confirmed
-  200, so full-text search exists and the tree walk works.
+- **`ywiki search`**: `POST /v1/search` for full-text search.
+- **`ywiki tree`**: `GET /v1/pages/descendants?slug=…&page_size=…` for navigation.
+  Both confirmed 200, so full-text search exists and the tree walk works.
 
 ## 7. Runtime / proxy confirmation
 
