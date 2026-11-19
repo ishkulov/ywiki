@@ -605,7 +605,7 @@ async function cmdAppend(opts, slug) {
   const content = await contentFrom(opts, { required: true, label: "page append" });
   const sectionId = "--section" in opts ? intOpt(opts, "--section", undefined) : undefined;
   const client = makeWriteClient(opts);
-  const page = await resolvePage(client, slug, { fields: "attributes,last_revision_id,page_type" });
+  const page = await resolvePage(client, slug, { fields: "attributes,last_revision_id" });
   assertEditable(page, { slug, content });
   const revision = revisionFor(opts, page);
   const body = buildAppendBody({
@@ -662,7 +662,7 @@ async function cmdAppend(opts, slug) {
 async function cmdDelete(opts, slug) {
   if (!slug) throw new UsageError("page delete: укажите slug");
   const client = makeWriteClient(opts);
-  const page = await resolvePage(client, slug, { fields: "attributes,last_revision_id,page_type" });
+  const page = await resolvePage(client, slug, { fields: "attributes,last_revision_id" });
   const recursive = Boolean(opts["--recursive"]);
 
   if (opts["--dry-run"]) {

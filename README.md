@@ -151,7 +151,7 @@ npm test
 
 - [`docs/runbook.md`](docs/runbook.md) — operations, troubleshooting, token lifecycle.
 - [`docs/wiki-api-notes.md`](docs/wiki-api-notes.md) — Wiki API surface
-  (read endpoints confirmed live; write endpoints documented, not live-confirmed).
+  (read and write endpoints confirmed live).
 - [`docs/compat.md`](docs/compat.md) — the legacy CLI ↔ ywiki convention mapping.
 - [`docs/plan.md`](docs/plan.md) — the original v2 build plan (historical).
 

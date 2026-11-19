@@ -288,3 +288,20 @@ test("a 400 VALIDATION_ERROR maps to usage with a redacted detail", async () => 
   assert.equal(e.kind, "usage");
   assert.match(e.message, /title must not be empty/);
 });
+
+test("a 400 MERGE_FAILED maps to conflict", async () => {
+  const { c } = client([
+    { status: 400, body: JSON.stringify({ error_code: "MERGE_FAILED", debug_message: "Conflict" }) },
+  ]);
+  const e = await capture(() => c.request("/pages/1?allow_merge=true", { method: "POST", body: { revision: "1" } }));
+  assert.equal(e.kind, "conflict");
+});
+
+test("a 400 BAD_REQUEST (unknown field) maps to usage", async () => {
+  const { c } = client([
+    { status: 400, body: JSON.stringify({ error_code: "BAD_REQUEST", debug_message: "Unknown field page_type" }) },
+  ]);
+  const e = await capture(() => c.request("/pages?slug=x&fields=page_type"));
+  assert.equal(e.kind, "usage");
+  assert.match(e.message, /Unknown field page_type/);
+});

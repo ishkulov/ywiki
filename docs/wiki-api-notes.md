@@ -1,7 +1,7 @@
 # Yandex Wiki API — surface notes
 
-Status: **read endpoints confirmed against the live API** with the existing legacy
-credential; **write endpoints are documented but NOT live-confirmed** (see §4).
+Status: **read and write endpoints confirmed against the live API** with the
+existing legacy credential (write check done on a disposable page in `a disposable test page`).
 No page content is reproduced in this file.
 
 Probe environment: Node 24.18.0, token read from
@@ -94,24 +94,22 @@ modified_at, show_obsolete}`.
 Response: `results[]{url,slug,title,content,type,modified_at}` where `content`
 is a search **snippet**, plus `next_cursor`, `prev_cursor`.
 
-## 4. Write surface (documented, **not** live-confirmed)
+## 4. Write surface (live-confirmed)
 
-Taken from the official API reference
-(`yandex.ru/support/wiki/ru/api-ref/pages/…`) during the write feature work.
-None of these calls has been exercised against the live API yet: the shape below
-is what `ywiki page create|edit|append|delete` sends, so a first real use is the
-confirmation. Unverified points are marked **?**.
+Confirmed against the live API on a disposable page (`a disposable test page`):
+create → edit → append → delete. The shape below is what
+`ywiki page create|edit|append|delete` sends. No page content is reproduced here.
 
 Write requests are user-scoped: the IAM token works only if the signed-in user
-may edit the page; otherwise expect `403`. There is no `wiki:write` scope to
-grant for an IAM token (that is OAuth terminology).
+may edit the page; otherwise expect `403`.
 
 ### POST `/v1/pages` — create
 
 Query: `fields`, `is_silent` (bool, default false).
 Body: `slug` (**required**), `title` (**required**, 1–255),
 `content` (optional), `access_policy` (optional).
-Response: page schema (same as `GET /v1/pages`).
+**Confirmed:** `200` with `id`, `slug`, `title`, `page_type`, `last_revision_id`,
+`attributes`, `content`, `active_revision`.
 
 ### POST `/v1/pages/{idx}` — update (POST, not PUT/PATCH)
 
@@ -119,11 +117,10 @@ Query: `allow_merge` (bool, default **false** — concurrent edits are a conflic
 `true` = 3-way merge), `is_silent`, `fields`.
 Body: `title`, `content`, `revision`, `redirect`, `access_policy`, `owner`,
 `actuality` (all optional).
-`revision` is documented as “the page version this change is based on” and is a
-**string** in the schema, while `last_revision_id` is an **integer**. `ywiki`
-sends `String(last_revision_id)`; **?** this equivalence is unverified. The
-status code for a revision mismatch is also **?** (docs say “conflict”; the
-client maps both `409` and `400` to `conflict`).
+**Confirmed:** sending `revision = String(last_revision_id)` returns `200` and a
+new `last_revision_id`; the read-then-write flow works. A **stale** `revision`
+returns `409 Conflict` (the client maps it to exit 6). With `allow_merge=true`
+and non-mergeable edits the API returns `400 MERGE_FAILED` (also exit 6).
 Response: page schema; `content` only when requested via `fields=content`.
 
 ### POST `/v1/pages/{idx}/append-content` — append
@@ -131,40 +128,50 @@ Response: page schema; `content` only when requested via `fields=content`.
 Query: `fields`, `is_silent`.
 Body: `content` (**required**, min length 1), `revision` (string), and exactly
 **one** of:
-- `body: {location: "top"|"bottom"}` — insert at the start/end of the page;
+- `body: {location: "top"|"bottom"}` — page-level insert;
 - `section: {id, location}` — insert into a page section;
 - `anchor: {name, fallback, regex}` — insert after an anchor; `fallback=true`
   appends to the end when the anchor is missing.
-Response: page schema.
+**Confirmed:** `200` with a new `last_revision_id`; appended text appears at the
+end of the page content.
 
 ### DELETE `/v1/pages/{idx}` — delete
 
 Query: `recursive` (bool, default false — delete sub-pages too).
-Response: `{recovery_token}`; restore with
-`POST /v1/recovery_tokens/{recovery_token}/recover` (**?** not implemented in
-`ywiki` yet).
+**Confirmed:** `200` with `{recovery_token}`; the page then returns
+`404 NOT_FOUND`. Restore with
+`POST /v1/recovery_tokens/{recovery_token}/recover` (not implemented in `ywiki`).
+
+### Field list for `GET /v1/pages?fields=…`
+
+Allowed: `last_revision_id`, `redirect`, `breadcrumbs`, `actuality`,
+`attributes`, `content`, `access_policy`, `access_lists`, `owner`.
+`page_type` is **not** allowed in `fields` (→ `400 BAD_REQUEST`) but is always
+returned in the response. `ywiki` therefore never asks for it.
 
 ### Safety notes
 
-- A cheap permission probe (documented by third-party clients) is
-  `POST /v1/pages/{id}` with body `{}`: `400 VALIDATION_ERROR` means write access
-  is present, `403` means it is not. Not used by `ywiki`.
+- A cheap permission probe is `POST /v1/pages/{id}` with body `{}`:
+  `400 VALIDATION_ERROR` means write access is present, `403` means it is not.
+  Not used by `ywiki`.
 - Collaborative pages (`attributes.is_collaborative`) may produce a draft
-  revision instead of publishing; **?** unverified.
-- `ywiki --force` omits `revision` (last-write-wins) as an escape hatch while
-  the `revision` semantics remain unconfirmed.
+  revision instead of publishing; not exercised.
+- `ywiki --force` omits `revision` (last-write-wins) as an escape hatch.
 
 ## 5. Error format
 
 JSON: `{ "debug_message": str, "details": {...}, "error_code": str }`.
 Observed live: `404 NOT_FOUND` (unknown slug), `400 ALREADY_INDEXING`
-(search index warming up — transient, retry later), `401` (expired IAM token).
+(search index warming up — transient), `400 BAD_REQUEST` (an unknown `fields`
+value; a caller mistake), `400 MERGE_FAILED` (3-way merge conflict), `409`
+(stale `revision`), `401` (expired IAM token).
 
 Error taxonomy mapping for the CLI (aligned with `the legacy CLI`, see docs/compat.md):
 `401` → `unauthenticated` (exit 3; one self-heal attempt, then error);
 `403` → `access_denied` (exit 4, no retry); `404 NOT_FOUND` → `not_found` (exit 5);
-`409` / `400 ALREADY_INDEXING` → `conflict` (exit 6);
-`429`/`5xx`/network → `unavailable` (exit 8, bounded retries).
+`409` / `400 ALREADY_INDEXING` / `400 MERGE_FAILED` → `conflict` (exit 6);
+`400 VALIDATION_ERROR` / `400 BAD_REQUEST` → `usage` (exit 2);
+`429`/`5xx`/network → `unavailable` (exit 8, bounded retries; never for writes).
 
 ## 6. Runtime / proxy
 
