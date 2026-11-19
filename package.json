@@ -1,0 +1,29 @@
+{
+  "name": "ywiki",
+  "version": "0.1.0",
+  "description": "Read-only CLI for Yandex Wiki, reusing the existing legacy IAM credential.",
+  "type": "module",
+  "bin": {
+    "ywiki": "./bin/ywiki.mjs"
+  },
+  "files": [
+    "bin",
+    "lib",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test 'test/*.test.mjs'"
+  },
+  "keywords": [
+    "yandex",
+    "wiki",
+    "cli",
+    "iam"
+  ],
+  "license": "MIT",
+  "private": true
+}
