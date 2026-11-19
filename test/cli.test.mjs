@@ -89,10 +89,14 @@ function run(args, extraEnv = {}) {
   });
 }
 
-test("search prints only 'slug — title'", async () => {
-  const r = await run(["search", "регламент"]);
-  assert.equal(r.status, 0, r.stderr);
-  assert.equal(r.stdout.trim(), "team/reg — Регламент\nother — Другое");
+test("search pipes JSON by default; rich text with --rich-ui=yes", async () => {
+  const j = await run(["search", "регламент"]);
+  assert.equal(j.status, 0, j.stderr);
+  assert.equal(j.stdout.trim(), JSON.stringify({ query: "регламент", results: [{ slug: "team/reg", title: "Регламент" }, { slug: "other", title: "Другое" }], next_cursor: null }, null, 2));
+
+  const t = await run(["search", "регламент", "--rich-ui=yes"]);
+  assert.equal(t.status, 0, t.stderr);
+  assert.equal(t.stdout.trim(), "team/reg — Регламент\nother — Другое");
 });
 
 test("search uses POST with the page filter", async () => {
@@ -103,42 +107,64 @@ test("search uses POST with the page filter", async () => {
   assert.match(post.url, /^\/v1\/search/);
 });
 
-test("empty search gives a hint and exits 0", async () => {
-  const r = await run(["search", "none"]);
+test("empty search gives a hint (rich) and exits 0", async () => {
+  const r = await run(["search", "none", "--rich-ui=yes"]);
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /Ничего не найдено/);
   assert.match(r.stdout, /Подсказка/);
+  assert.equal(JSON.parse((await run(["search", "none"])).stdout).results.length, 0);
 });
 
-test("spaces prints 'slug — title'", async () => {
-  const r = await run(["spaces"]);
+test("spaces prints 'slug — title' (rich); grouped `space list` matches", async () => {
+  const r = await run(["spaces", "--rich-ui=yes"]);
   assert.equal(r.status, 0, r.stderr);
   assert.equal(r.stdout.trim(), "project-x — Project X");
+  const g = await run(["space", "list", "--rich-ui=yes"]);
+  assert.equal(g.stdout.trim(), "project-x — Project X");
 });
 
-test("tree lists descendant slugs", async () => {
-  const r = await run(["tree", ""]);
+test("tree lists descendant slugs; grouped `page descendants` matches", async () => {
+  const r = await run(["tree", "", "--rich-ui=yes"]);
   assert.equal(r.status, 0, r.stderr);
   assert.equal(r.stdout.trim(), "team\nteam/sub");
+  const g = await run(["page", "descendants", "", "--rich-ui=yes"]);
+  assert.equal(g.stdout.trim(), "team\nteam/sub");
 });
 
 test("get clips long content and hints --offset", async () => {
-  const r = await run(["get", "team/reg", "--limit", "100"]);
+  const r = await run(["get", "team/reg", "--limit", "100", "--rich-ui=yes"]);
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /--offset 100/);
   assert.ok(r.stdout.includes("X".repeat(100)));
 });
 
 test("get on an empty page prints EMPTY and exits 0", async () => {
-  const r = await run(["get", "empty"]);
+  const r = await run(["get", "empty", "--rich-ui=yes"]);
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /EMPTY/);
 });
 
-test("unknown command exits 2 with usage", async () => {
+test("api GET is read-only and restricted to the confirmed surface", async () => {
+  const ok = await run(["api", "GET", "spaces"]);
+  assert.equal(ok.status, 0, ok.stderr);
+  const bad = await run(["api", "POST", "pages"]);
+  assert.equal(bad.status, 2);
+  const off = await run(["api", "GET", "totally/bogus"]);
+  assert.equal(off.status, 2);
+});
+
+test("skill prints bundled agent guidance", async () => {
+  const r = await run(["skill"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /name: ywiki-cli/);
+});
+
+test("unknown command exits 2 with the error envelope and usage", async () => {
   const r = await run(["frobnicate"]);
   assert.equal(r.status, 2);
-  assert.match(r.stderr, /Использование:/);
+  assert.match(r.stderr, /^Error: Invalid command usage/);
+  assert.match(r.stderr, /Next:/);
+  assert.match(r.stderr, /Usage/);
 });
 
 test("--help exits 0 and is at most 25 lines", async () => {

@@ -85,10 +85,11 @@ JSON: `{ "debug_message": str, "details": {...}, "error_code": str }`.
 Observed live: `404 NOT_FOUND` (unknown slug), `400 ALREADY_INDEXING`
 (search index warming up — transient, retry later), `401` (expired IAM token).
 
-Error taxonomy mapping for the tools (per contract §2):
-`401` → `auth_unavailable` (one self-heal attempt, then error);
-`403` → `access_denied` (no retry); `404 NOT_FOUND` → `not_found`;
-`429`/`5xx` → `upstream_unavailable` (bounded retries).
+Error taxonomy mapping for the CLI (aligned with `the legacy CLI`, see docs/compat.md):
+`401` → `unauthenticated` (exit 3; one self-heal attempt, then error);
+`403` → `access_denied` (exit 4, no retry); `404 NOT_FOUND` → `not_found` (exit 5);
+`409` / `400 ALREADY_INDEXING` → `conflict` (exit 6);
+`429`/`5xx`/network → `unavailable` (exit 8, bounded retries).
 
 ## 5. Runtime / proxy
 

@@ -25,29 +25,42 @@ ywiki whoami
 
 ## Usage
 
+`ywiki` follows the `the legacy CLI` CLI conventions: grouped commands with flat
+shortcuts, JSON output by default when piped, rich text on a terminal.
+
 ```bash
-ywiki whoami                       # login, scheme, org, credential age, token prefix
-ywiki get <slug> [--offset N] [--limit N]
-ywiki search <query> [--limit N]
-ywiki tree <slug> [--limit N]
-ywiki spaces
+ywiki whoami                        # login, scheme, org, credential age, token prefix
+ywiki page get <slug> [--offset N] [--limit N] [--fields a,b]
+ywiki page search <query> [--limit N] [--all] [--cursor N]
+ywiki page descendants <slug> [--limit N] [--all] [--cursor N]
+ywiki space list [--all]
+ywiki api GET <path> [--header "Name: value"]   # read-only passthrough
+ywiki skill                          # bundled agent guidance
 ywiki --help | --version
 ```
 
-Global flags: `--json`, `--no-cache`, `--timeout S`.
-Environment: `LEGACY_CREDENTIALS`, `LEGACY_AUTH`, `WIKI_CACHE_DIR`, `WIKI_NO_CACHE`,
-`WIKI_IAM_TOKEN`, `WIKI_ORGANIZATION_ID`, `WIKI_BASE_URL`.
+Shortcuts: `get <slug>` · `search <query>` · `tree <slug>` · `spaces`.
 
-Exit codes:
+Global flags: `--json`, `--rich-ui=yes|no`, `--no-cache`,
+`--timeout-ms N` (alias `--timeout S`), `--no-input`.
+Environment: `LEGACY_CREDENTIALS`, `LEGACY_AUTH`, `WIKI_CACHE_DIR`, `WIKI_NO_CACHE`,
+`LEGACY_IAM_TOKEN`, `LEGACY_ORGANIZATION_ID` (and `WIKI_*` aliases),
+`WIKI_BASE_URL`.
+
+Output: JSON when stdout is not a TTY (agents, pipes, CI); rich text on a TTY.
+`--json` forces JSON, `--rich-ui=yes|no` overrides both ways.
+
+Exit codes (aligned with `the legacy CLI`):
 
 | Code | Meaning | What to do |
 |---|---|---|
 | 0 | ok | — |
 | 2 | usage | fix the command from the hint |
-| 3 | not_found | try another slug or `search` |
+| 3 | unauthenticated | refresh the token (see below) |
 | 4 | access_denied | **do not retry**; ask the page owner |
-| 5 | upstream_unavailable | retry later |
-| 8 | auth_unavailable | refresh the token (see below) |
+| 5 | not_found | try another slug or `search` |
+| 6 | conflict | index warming up; retry shortly |
+| 8 | unavailable | retry later |
 
 ## Auth
 
@@ -81,6 +94,7 @@ npm test
 - [`docs/runbook.md`](docs/runbook.md) — operations, troubleshooting, token lifecycle.
 - [`docs/wiki-api-notes.md`](docs/wiki-api-notes.md) — confirmed Wiki API
   surface (endpoints, headers, error taxonomy) from live reconnaissance.
+- [`docs/compat.md`](docs/compat.md) — the legacy CLI ↔ ywiki convention mapping.
 - [`docs/plan.md`](docs/plan.md) — the original v2 build plan (historical).
 
 ## Safety

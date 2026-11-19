@@ -94,10 +94,23 @@ test("403 maps to access_denied and is not retried", async () => {
   assert.equal(calls.length, 1, "no retries on 403");
 });
 
-test("429 is retried up to 3 attempts then upstream_unavailable", async () => {
+test("409 maps to conflict (no retry)", async () => {
+  const { c, calls } = client([{ status: 409 }]);
+  const e = await capture(() => c.request("/pages?slug=x"));
+  assert.equal(e.kind, "conflict");
+  assert.equal(calls.length, 1);
+});
+
+test("400 ALREADY_INDEXING maps to conflict", async () => {
+  const { c } = client([{ status: 400, body: '{"error_code":"ALREADY_INDEXING"}' }]);
+  const e = await capture(() => c.request("/search", { method: "POST", body: { query: "x" } }));
+  assert.equal(e.kind, "conflict");
+});
+
+test("429 is retried up to 3 attempts then unavailable", async () => {
   const { c, calls } = client([{ status: 429 }, { status: 429 }, { status: 429 }]);
   const e = await capture(() => c.request("/pages?slug=x"));
-  assert.equal(e.kind, "upstream_unavailable");
+  assert.equal(e.kind, "unavailable");
   assert.equal(calls.length, 3);
 });
 
@@ -113,11 +126,11 @@ test("5xx is retried with backoff then fails", async () => {
   const { impl } = fetchScript([{ status: 503 }, { status: 500 }, { status: 502 }]);
   const c = createClient({ fetchImpl: impl, cacheDir: dir, sleepFn: async (ms) => delays.push(ms) });
   const e = await capture(() => c.request("/spaces"));
-  assert.equal(e.kind, "upstream_unavailable");
+  assert.equal(e.kind, "unavailable");
   assert.deepEqual(delays, [500, 1000], "exponential backoff 500,1000");
 });
 
-test("timeout aborts and maps to upstream_unavailable", async () => {
+test("timeout aborts and maps to unavailable", async () => {
   const impl = async (url, init) =>
     new Promise((_res, rej) => {
       init.signal.addEventListener("abort", () => {
@@ -128,7 +141,7 @@ test("timeout aborts and maps to upstream_unavailable", async () => {
     });
   const c = createClient({ fetchImpl: impl, cacheDir: dir, timeoutMs: 20, sleepFn: async () => {} });
   const e = await capture(() => c.request("/spaces"));
-  assert.equal(e.kind, "upstream_unavailable");
+  assert.equal(e.kind, "unavailable");
   assert.match(e.message, /таймаут/);
 });
 
@@ -179,10 +192,10 @@ test("cache directory stores no headers or tokens", async () => {
   }
 });
 
-test("401 without refresh maps to auth_unavailable (single attempt)", async () => {
+test("401 without refresh maps to unauthenticated (single attempt)", async () => {
   const { c, calls } = client([{ status: 401 }]);
   const e = await capture(() => c.request("/pages?slug=x"));
-  assert.equal(e.kind, "auth_unavailable");
+  assert.equal(e.kind, "unauthenticated");
   assert.equal(calls.length, 1);
 });
 
@@ -207,17 +220,17 @@ test("401 self-heal is not attempted for non-whitelisted endpoints", async () =>
   let refreshes = 0;
   const { c, calls } = client([{ status: 401 }], { refresh: async () => { refreshes++; } });
   const e = await capture(() => c.request("/other/thing"));
-  assert.equal(e.kind, "auth_unavailable");
+  assert.equal(e.kind, "unauthenticated");
   assert.equal(refreshes, 0);
   assert.equal(calls.length, 1);
 });
 
-test("refresh failure surfaces auth_unavailable", async () => {
+test("refresh failure surfaces unauthenticated", async () => {
   const { c } = client([{ status: 401 }], {
     refresh: async () => {
-      throw new WikiError("auth_unavailable", "refresh failed");
+      throw new WikiError("unauthenticated", "refresh failed");
     },
   });
   const e = await capture(() => c.request("/spaces"));
-  assert.equal(e.kind, "auth_unavailable");
+  assert.equal(e.kind, "unauthenticated");
 });

@@ -76,29 +76,29 @@ test("valid iam credential is parsed", () => {
   assert.ok(c.mtimeMs > 0);
 });
 
-test("missing file throws AuthError(unavailable)", () => {
+test("missing file throws AuthError(unauthenticated)", () => {
   const err = captureAuth(() => credentials());
-  assert.equal(err.kind, "unavailable");
+  assert.equal(err.kind, "unauthenticated");
   assert.match(err.message, /нет файла/);
 });
 
 test("version=3 is rejected", () => {
   writeCred(iam(), "iam", "orgX", 3);
   const err = captureAuth(() => credentials());
-  assert.equal(err.kind, "unavailable");
+  assert.equal(err.kind, "unauthenticated");
   assert.match(err.message, /version=3/);
 });
 
 test("empty token is rejected", () => {
   writeCred("");
   const err = captureAuth(() => credentials());
-  assert.equal(err.kind, "unavailable");
+  assert.equal(err.kind, "unauthenticated");
 });
 
 test("non-iam-format token is rejected when scheme=iam", () => {
   writeCred("not-an-iam-token-xxxxxxxxxxxxxxxxxxxxx");
   const err = captureAuth(() => credentials());
-  assert.equal(err.kind, "unavailable");
+  assert.equal(err.kind, "unauthenticated");
   assert.match(err.message, /формат/);
 });
 
