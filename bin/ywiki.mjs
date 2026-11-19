@@ -20,6 +20,7 @@ import {
   errorEnvelope,
   VERSION,
   EXIT,
+  WikiError,
 } from "../lib/output.mjs";
 
 /** Error whose `kind` is always `usage`. */
@@ -124,7 +125,8 @@ function resolveCommand(positionals) {
       if (verb === "get") return { key: "page get", handler: "get", args };
       if (verb === "search") return { key: "page search", handler: "search", args };
       if (verb === "descendants") return { key: "page descendants", handler: "descendants", args };
-      throw new UsageError(`page: неизвестная подкоманда «${verb ?? ""}» (get|search|descendants)`);
+      if (verb === "comments") return { key: "page comments", handler: "comments", args };
+      throw new UsageError(`page: неизвестная подкоманда «${verb ?? ""}» (get|search|descendants|comments)`);
     }
     case "space": {
       const verb = rest[0];
@@ -331,6 +333,57 @@ async function cmdDescendants(opts, slug) {
   out(opts, payload, human);
 }
 
+async function cmdComments(opts, slug) {
+  if (!slug) throw new UsageError("page comments: укажите slug");
+  const client = makeClient(opts);
+  const pageSize = intOpt(opts, "--limit", undefined);
+  const meta = await client.request(`/pages?slug=${encodeSlug(slug)}`);
+  const id = meta.id;
+  if (id === undefined || id === null) throw new WikiError("not_found", `страница «${slug}» без id`);
+  const queryOf = (cur) =>
+    `/pages/${encodeURIComponent(String(id))}/comments` +
+    (pageSize === undefined ? "" : `?page_size=${pageSize}`) +
+    (cur === undefined ? "" : `${pageSize === undefined ? "?" : "&"}cursor=${encodeURIComponent(cur)}`);
+  const fetchPage = (cur) => client.request(queryOf(cur));
+
+  let results;
+  let nextCursor = null;
+  if (opts["--all"]) {
+    ({ results, nextCursor } = await collectAll(fetchPage));
+  } else {
+    const res = await fetchPage(undefined);
+    results = Array.isArray(res.results) ? res.results : [];
+    nextCursor = res.next_cursor ?? null;
+  }
+
+  const payload = {
+    slug,
+    id,
+    results: results.map((c) => ({
+      id: c.id,
+      body: c.body,
+      author: c.author?.username ?? null,
+      created_at: c.created_at ?? null,
+      resolve_status: c.resolve_status ?? null,
+      reply_count: c.thread_info?.total_posts ?? 0,
+    })),
+    next_cursor: nextCursor,
+  };
+  const human = () => {
+    if (!results.length) {
+      return `Комментариев нет для «${slug}».\nПодсказка: проверьте slug или используйте \`ywiki search\`.`;
+    }
+    return results
+      .map((c) => {
+        const n = c.thread_info?.total_posts ?? 0;
+        const head = `#${c.id} ${c.author?.username ?? "?"} ${c.created_at ?? ""} [${c.resolve_status ?? "?"}]${n ? ` (+${n} ответов)` : ""}`;
+        return `${head}\n${c.body ?? ""}`;
+      })
+      .join("\n\n");
+  };
+  out(opts, payload, human);
+}
+
 async function cmdSpaces(opts) {
   const client = makeClient(opts);
   const fetchPage = (cur) => client.request("/spaces" + (cur === undefined ? "" : `?cursor=${cur}`));
@@ -440,6 +493,9 @@ async function main() {
       break;
     case "descendants":
       await cmdDescendants(opts, resolved.args[0]);
+      break;
+    case "comments":
+      await cmdComments(opts, resolved.args[0]);
       break;
     case "spaces":
       await cmdSpaces(opts);

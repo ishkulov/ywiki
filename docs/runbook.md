@@ -21,6 +21,7 @@ dependencies, no `bun`.
 ywiki page search "<term>" # find pages (JSON when piped; --rich-ui=yes for text)
 ywiki page get <slug>      # read a page (clipped; continue with --offset N)
 ywiki page descendants <slug>  # list sub-pages
+ywiki page comments <slug>     # list top-level comments
 ywiki space list           # list spaces
 ywiki search "<term>"      # shortcuts: get / search / tree / spaces
 ```

@@ -50,10 +50,26 @@ before(async () => {
       if (req.method === "GET" && url.pathname === "/v1/pages/descendants") {
         return send(200, { results: [{ id: 1, slug: "team" }, { id: 2, slug: "team/sub" }], next_cursor: null });
       }
+      if (req.method === "GET" && /^\/v1\/pages\/\d+\/comments$/.test(url.pathname)) {
+        const pid = url.pathname.split("/")[3];
+        if (pid === "7") return send(200, { results: [], next_cursor: null, prev_cursor: null });
+        if (url.searchParams.get("cursor") === "c2") {
+          return send(200, { results: [{ id: 12, body: "Второй", author: { username: "bob" }, created_at: "2026-01-02T00:00:00Z", resolve_status: "resolved", thread_info: { total_posts: 0 } }], next_cursor: null, prev_cursor: "c1" });
+        }
+        return send(200, {
+          results: [
+            { id: 11, body: "Первый", author: { username: "alice" }, created_at: "2026-01-01T00:00:00Z", resolve_status: "unresolved", thread_info: { total_posts: 3 } },
+            { id: 10, body: "Старый", author: { username: "carol" }, created_at: "2025-12-31T00:00:00Z", resolve_status: "resolved", thread_info: { total_posts: 0 } },
+          ],
+          next_cursor: "c2",
+          prev_cursor: null,
+        });
+      }
       if (req.method === "GET" && url.pathname === "/v1/pages") {
         const slug = url.searchParams.get("slug");
-        if (slug === "empty") return send(200, { slug, title: "Пустая", page_type: "wysiwyg", content: "", attributes: { modified_at: "2026-01-01T00:00:00Z" } });
-        return send(200, { slug, title: "Заголовок", page_type: "wysiwyg", content: "X".repeat(20000), attributes: { modified_at: "2026-01-01T00:00:00Z" } });
+        if (slug === "no-comments") return send(200, { id: 7, slug, title: "Без комментов", page_type: "wysiwyg", content: "" });
+        if (slug === "empty") return send(200, { id: 9, slug, title: "Пустая", page_type: "wysiwyg", content: "", attributes: { modified_at: "2026-01-01T00:00:00Z" } });
+        return send(200, { id: 42, slug, title: "Заголовок", page_type: "wysiwyg", content: "X".repeat(20000), attributes: { modified_at: "2026-01-01T00:00:00Z" } });
       }
       return send(404, { error_code: "NOT_FOUND" });
     });
@@ -131,6 +147,54 @@ test("tree lists descendant slugs; grouped `page descendants` matches", async ()
   assert.equal(g.stdout.trim(), "team\nteam/sub");
 });
 
+test("page comments resolves the id and pipes JSON by default", async () => {
+  const r = await run(["page", "comments", "team/reg"]);
+  assert.equal(r.status, 0, r.stderr);
+  const j = JSON.parse(r.stdout);
+  assert.equal(j.slug, "team/reg");
+  assert.equal(j.id, 42);
+  assert.equal(j.results.length, 2);
+  assert.deepEqual(j.results[0], {
+    id: 11,
+    body: "Первый",
+    author: "alice",
+    created_at: "2026-01-01T00:00:00Z",
+    resolve_status: "unresolved",
+    reply_count: 3,
+  });
+  assert.equal(j.next_cursor, "c2");
+});
+
+test("page comments calls the by-id endpoint with page_size", async () => {
+  seen = [];
+  await run(["page", "comments", "team/reg", "--limit", "5"]);
+  const comments = seen.find((s) => /\/comments/.test(s.url));
+  assert.ok(comments, "must call the comments endpoint");
+  assert.match(comments.url, /^\/v1\/pages\/42\/comments\?/);
+  assert.match(comments.url, /page_size=5/);
+});
+
+test("page comments --all follows the string cursor", async () => {
+  const r = await run(["page", "comments", "team/reg", "--all"]);
+  assert.equal(r.status, 0, r.stderr);
+  const j = JSON.parse(r.stdout);
+  assert.equal(j.results.length, 3);
+  assert.equal(j.results[2].id, 12);
+  assert.equal(j.next_cursor, null);
+});
+
+test("page comments rich output and empty hint", async () => {
+  const rich = await run(["page", "comments", "team/reg", "--rich-ui=yes"]);
+  assert.equal(rich.status, 0, rich.stderr);
+  assert.match(rich.stdout, /#11 alice .*\[unresolved\] \(\+3 ответов\)/);
+  assert.match(rich.stdout, /Первый/);
+
+  const none = await run(["page", "comments", "no-comments", "--rich-ui=yes"]);
+  assert.equal(none.status, 0, none.stderr);
+  assert.match(none.stdout, /Комментариев нет/);
+  assert.deepEqual(JSON.parse((await run(["page", "comments", "no-comments"])).stdout).results, []);
+});
+
 test("get clips long content and hints --offset", async () => {
   const r = await run(["get", "team/reg", "--limit", "100", "--rich-ui=yes"]);
   assert.equal(r.status, 0, r.stderr);
@@ -189,7 +253,7 @@ test("--version and -v print the version; -v --json is machine-readable", async 
 });
 
 test("no output ever contains the full token", async () => {
-  for (const args of [["whoami"], ["get", "team/reg"], ["search", "x"], ["tree", ""], ["spaces"]]) {
+  for (const args of [["whoami"], ["get", "team/reg"], ["search", "x"], ["tree", ""], ["spaces"], ["page", "comments", "team/reg"]]) {
     const r = await run(args);
     assert.ok(!r.stdout.includes(IAM), `stdout leaked token for ${args.join(" ")}`);
     assert.ok(!r.stderr.includes(IAM), `stderr leaked token for ${args.join(" ")}`);

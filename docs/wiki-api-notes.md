@@ -70,6 +70,20 @@ Page by slug. Query: `slug` (required), `fields` (comma list), `revision_id`,
 ### GET `/v1/pages/{id}` → 200
 Same schema as `/v1/pages`, addressed by page id instead of slug.
 
+### GET `/v1/pages/{id}/comments` → 200
+List top-level discussion comments for a page. Keyed by the **numeric page id**
+(equal to the `id` field returned by `GET /v1/pages?slug=…`), **not** the slug.
+Replies inside threads are excluded; use
+`GET /v1/pages/{id}/comments/{comment_id}/thread` for those. Default sort:
+newest first by creation date. Query: `cursor` (**string**; from
+`next_cursor`/`prev_cursor`), `page_size` (1–100, default 50),
+`order_by` (`created_at`), `order_direction` (`asc`|`desc`), `status_filter`
+(`resolved`|`unresolved`). Body: `results[]` of `CommentSchemaExt`
+(`id`, `body`, `inline_text`, `parent_id`, `author{id,username,display_name,…}`,
+`thread_id`, `created_at`, `is_deleted`, `resolve_status`, `reactions[]`,
+`thread_info{total_posts,last_comment}`), plus `next_cursor`, `prev_cursor`.
+Note: the comments cursor is a **string**, unlike the integer cursors elsewhere.
+
 ### POST `/v1/search` → 200
 **Full-text search is available.** Body:
 `query` (required), `limit` (1–50, default 10), `cursor` (1–500),
@@ -108,6 +122,8 @@ proxy handling is required in the tool code. Node 24.18.0 supports
 - **`ywiki search`**: `POST /v1/search` for full-text search.
 - **`ywiki tree`**: `GET /v1/pages/descendants?slug=…&page_size=…` for navigation.
   Both confirmed 200, so full-text search exists and the tree walk works.
+- **`ywiki page comments`**: resolve the id via `GET /v1/pages?slug=…`, then
+  `GET /v1/pages/{id}/comments?page_size=…` for top-level comments.
 
 ## 7. Runtime / proxy confirmation
 

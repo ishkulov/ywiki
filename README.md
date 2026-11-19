@@ -33,6 +33,7 @@ ywiki whoami                        # login, scheme, org, credential age, token 
 ywiki page get <slug> [--offset N] [--limit N] [--fields a,b]
 ywiki page search <query> [--limit N] [--all] [--cursor N]
 ywiki page descendants <slug> [--limit N] [--all] [--cursor N]
+ywiki page comments <slug> [--limit N] [--all]
 ywiki space list [--all]
 ywiki api GET <path> [--header "Name: value"]   # read-only passthrough
 ywiki skill                          # bundled agent guidance
