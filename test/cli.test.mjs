@@ -157,6 +157,7 @@ test("skill prints bundled agent guidance", async () => {
   const r = await run(["skill"]);
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /name: ywiki-cli/);
+  assert.match(r.stdout, /do not retry/);
 });
 
 test("unknown command exits 2 with the error envelope and usage", async () => {
