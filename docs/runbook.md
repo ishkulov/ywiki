@@ -151,7 +151,10 @@ ywiki spaces              # quick read-only reachability check
 - Exit `3` with a fresh credential → the token is invalid or expired; run
   `ywiki auth login` again. Check `ywiki auth status` first.
 - Exit `4` → the signed-in user genuinely lacks access; do not retry, ask the
-  page owner.
+  page owner. Right after a `browser` login this usually means the OAuth app has
+  no `wiki:read`/`wiki:write` access, or the account is cloud/federated and its
+  OAuth token is refused by Wiki: re-login with `--method iam` or paste an IAM
+  token with `--method token`.
 - Exit `6` → version conflict or index warming up (`ALREADY_INDEXING`); for a
   write, re-read the page and retry; for a search, retry shortly.
 - Exit `8` after a write → the request may have been applied; re-read the page

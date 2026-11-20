@@ -540,16 +540,28 @@ async function cmdAuthLogin(opts) {
 
   let result;
   if (method === "browser") {
-    result = await login({
-      method,
-      org,
-      clientId,
-      scope: opts["--scope"],
-      noOpen: Boolean(opts["--no-open"]),
-      timeoutMs,
-      callbackTimeoutMs,
-      onAuthorizeUrl: (url) => process.stderr.write(`Откройте URL для входа:\n${url}\n`),
-    });
+    try {
+      result = await login({
+        method,
+        org,
+        clientId,
+        scope: opts["--scope"],
+        noOpen: Boolean(opts["--no-open"]),
+        timeoutMs,
+        callbackTimeoutMs,
+        onAuthorizeUrl: (url) => process.stderr.write(`Откройте URL для входа:\n${url}\n`),
+      });
+    } catch (e) {
+      if (e instanceof WikiError && e.kind === "access_denied") {
+        process.stderr.write(
+          "OAuth-токен получен, но Wiki отклонил его (403).\n" +
+            "  Проверьте, что приложению выданы доступы wiki:read и wiki:write.\n" +
+            "  Для cloud-организации OAuth-токен обычно не даёт доступа к Wiki — используйте\n" +
+            "  --method iam (yc iam create-token) или --method token с IAM-токеном.\n",
+        );
+      }
+      throw e;
+    }
   } else if (method === "token") {
     const token = await readSecret({ noInput: Boolean(opts["--no-input"]) });
     result = await login({ method, token, org, timeoutMs });
