@@ -17,9 +17,10 @@ ywiki whoami            # verify: login, scheme, org, credential age
 ```
 
 In a TTY `auth login` prompts for a method (browser when an OAuth client id is
-configured, otherwise iam) and the organization id when it is not given by flag
-or env; outside a TTY pass `--method` and `--organization-id`. Cloud/federated
-accounts should use `--method iam`. See [Auth](#auth).
+configured, otherwise iam), the organization id, and — for `browser` — the
+OAuth client id (Enter there falls back to iam); outside a TTY pass `--method`
+and `--organization-id`. Cloud/federated accounts should use `--method iam`.
+See [Auth](#auth).
 
 ## Quick start
 
@@ -112,14 +113,19 @@ In a TTY, a missing `--organization-id` is asked for interactively, so plain
 `ywiki auth login` is enough; outside a TTY the flag (or
 `WIKI_ORGANIZATION_ID`) is required. The id is not discoverable offline: it is
 the `b1g…` organization id from the Yandex Cloud console, or a numeric id for
-Yandex 360 for Business.
+Yandex 360 for Business (Tracker → Администрирование → Организации).
+
+`browser` needs a Wiki OAuth app: <https://oauth.yandex.ru> → **Create** →
+permissions `wiki:read` / `wiki:write` → copy the **ClientID**. Pass it as
+`--client-id`, set `WIKI_OAUTH_CLIENT_ID`, or paste it at the TTY prompt; an
+empty answer falls back to `iam` (the practical path for cloud/federated
+accounts).
 
 - `browser` (the TTY default when a client id is configured) — OAuth 2.0 + PKCE
-  on `127.0.0.1`; needs a Wiki OAuth app client id (`--client-id` or
-  `WIKI_OAUTH_CLIENT_ID`);
+  on `127.0.0.1`;
 - `token` — paste an OAuth or IAM token on stdin or a hidden prompt.
 - `iam` (the TTY default otherwise) — run `yc --no-browser iam create-token` and
-  store the result; the practical path for cloud and federated accounts.
+  store the result.
 
 On a `401`, `ywiki` makes one self-heal attempt for reads (IAM via
 `yc iam create-token`, OAuth via its `refresh_token`); otherwise re-run

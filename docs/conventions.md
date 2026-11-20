@@ -54,10 +54,11 @@ HTTP → code: `401 → 3`, `403 → 4`, `404 → 5`, `409`/`ALREADY_INDEXING �
 - **`auth login` methods.** `browser` (OAuth + PKCE, the TTY default when a
   client id is configured), `token` (paste OAuth/IAM), and `iam`
   (`yc iam create-token`, the TTY default otherwise) are available. In a TTY the
-  method and, when absent, the organization id are prompted; outside a TTY
-  `--method` and `--organization-id` (or `WIKI_ORGANIZATION_ID`) are required.
-  `auth status` and `auth logout` manage the local file without a network call;
-  `auth logout` needs `--yes` outside a TTY.
+  method, the organization id, and a missing `browser` client id are prompted
+  (empty client id → `iam`); outside a TTY `--method` and `--organization-id`
+  (or `WIKI_ORGANIZATION_ID`) are required. `auth status` and `auth logout`
+  manage the local file without a network call; `auth logout` needs `--yes`
+  outside a TTY.
 - **No `config` command** — there is nothing to configure.
 - **No `--ai-access-check`** — not part of the Wiki API surface.
 - **Cursor flags** (`--all`, `--cursor N`) are exposed on the read endpoints
