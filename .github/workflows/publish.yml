@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -12,15 +13,20 @@ permissions:
 jobs:
   npm:
     runs-on: ubuntu-latest
+    env:
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
+      # Secrets cannot be referenced in `if`; a job-level env var can. If
+      # NPM_TOKEN is unset (repository not wired up yet, or using OIDC trusted
+      # publishing instead), the steps below are skipped and the run stays green.
       - name: Test before publishing
+        if: ${{ env.NODE_AUTH_TOKEN != '' }}
         run: npm test
       - name: Publish to npm
+        if: ${{ env.NODE_AUTH_TOKEN != '' }}
         run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
