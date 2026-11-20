@@ -1,5 +1,9 @@
 # ywiki
 
+[![npm](https://img.shields.io/npm/v/%40ishkulov/ywiki)](https://www.npmjs.com/package/@ishkulov/ywiki)
+[![CI](https://github.com/ishkulov/ywiki/actions/workflows/ci.yml/badge.svg)](https://github.com/ishkulov/ywiki/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 CLI for **Yandex Wiki**, for people and agents. It owns its credential
 (`~/.config/ywiki/credentials.toml`, schema v2) and its auth flow; refresh is
 lazy and handled internally. Reads never change Wiki; Wiki writes exist only as
