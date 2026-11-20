@@ -1,0 +1,50 @@
+name: Bug report
+description: Something is broken or behaves unexpectedly
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Do not paste tokens, page content, or credential files.** Mask anything
+        sensitive; `ywiki` only ever prints a short token prefix.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you do, what did you expect, what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Exact command and output
+      description: The full command line and its output (redact anything sensitive).
+      render: shell
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: ywiki version
+      description: "Output of `ywiki --version`."
+    validations:
+      required: true
+  - type: input
+    id: node
+    attributes:
+      label: Node.js version
+      description: "Output of `node --version` (must be ≥ 20)."
+    validations:
+      required: true
+  - type: dropdown
+    id: auth
+    attributes:
+      label: Auth method
+      options:
+        - browser (OAuth + PKCE)
+        - token (pasted OAuth/IAM)
+        - iam (yc iam create-token)
+        - env vars (WIKI_IAM_TOKEN / WIKI_TOKEN)
+        - not sure
+    validations:
+      required: false
