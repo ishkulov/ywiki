@@ -46,7 +46,8 @@ HTTP → code: `401 → 3`, `403 → 4`, `404 → 5`, `409`/`ALREADY_INDEXING �
   accepts only `GET` and only the confirmed Wiki surface (`pages`, `spaces`,
   `users/me`, `search`).
 - **Writes are never replayed.** A timeout or `5xx` on a write is reported as
-  `unavailable` without a retry; the caller must re-read the page.
+  `unavailable` without a retry; the caller must re-read the page. Only
+  idempotent reads are cached; a successful write clears the cache.
 - **Own credential and refresh.** `ywiki` stores its own
   `~/.config/ywiki/credentials.toml` and refreshes lazily on `401`
   (`yc iam create-token` for IAM, `refresh_token` for OAuth).

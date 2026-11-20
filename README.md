@@ -128,10 +128,11 @@ Yandex Cloud console, or a numeric id for Yandex 360 for Business
 - `iam` — run `yc --no-browser iam create-token` and store the result; the
   practical path for cloud and federated accounts.
 
-On a `401`, `ywiki` makes one self-heal attempt for reads (IAM via
+On a `401`, `ywiki` makes one self-heal attempt after refreshing (IAM via
 `yc iam create-token`, OAuth via its `refresh_token`); otherwise re-run
-`ywiki auth login`. Writes are never replayed. The token is read in-process
-only, never through `argv`, and is masked in all output. Details:
+`ywiki auth login`. A rejected request has no side effects, so the retry is
+safe. Writes are never replayed after a timeout or `5xx`. The token is read
+in-process only, never through `argv`, and is masked in all output. Details:
 [`docs/runbook.md`](docs/runbook.md).
 
 ## Agents

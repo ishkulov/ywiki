@@ -1,87 +1,99 @@
-# AGENTS.md
+# Working on ywiki
 
 `ywiki` is a zero-dependency Node CLI for Yandex Wiki. Install and usage live in
 [`README.md`](README.md); this file holds the rules that keep the tool
-dependency-free, token-safe, and reads-by-default.
+dependency-free, token-safe, and reads-by-default. Every change keeps the rules
+below true and leaves `npm test` green on Node 20 (CI: 20/22/24).
 
 ## Hard rules
 
-- **Reads by default; writes are explicit.** Reads live under `page get|search|
-  descendants|locate|history|revision|diff|comments`, `page comment list|thread`,
-  `space list`, and the flat shortcuts. Mutations exist only as
-  `page create|edit|append|delete` and `page comment add|reply|delete`, and have
-  **no** shortcuts: the write surface must stay identifiable by one prefix so a
-  permission rule can gate it.
-  `ywiki api` stays `GET`-only. Do not add a mutating subcommand outside those
-  verbs.
+- **Reads by default; the write surface is one prefix.** Wiki mutations exist
+  only as `page …` verbs and have no shortcuts, so one permission rule on
+  `ywiki page` can gate the whole write surface. The read and write verb lists
+  are in README's Commands block. `api` is `GET`-only; every write supports
+  `--dry-run` and sends nothing with it.
+
 - **Inline comments are two writes.** `inline_text` is metadata; the anchor is
-  the `&[text](id)` marker in the page content. Create the comment, then edit the
-  page with the marker; on a failed page edit, delete the comment. Deleting an
-  inline comment removes its marker in a second write.
-- **Writes are never replayed.** A timeout or `5xx` on a mutation means the
-  outcome is unknown: do not auto-retry; tell the caller to re-read the page.
-  A rejected request (`401`) may be retried after refresh, since it has no side
-  effects. Only idempotent reads are cached; a successful write clears the cache.
-- **One Wiki credential, no timer.** `ywiki` owns
-  `~/.config/ywiki/credentials.toml` (schema v2). Refresh is lazy and single-flight:
-  IAM via `yc iam create-token`, OAuth via the stored `refresh_token`. Do not add
-  a timer or a second token source. Writes to the credential file go through
-  `writeCredential()` only.
-- **The token stays inside `ywiki`.** Read it in-process only; never via `argv`,
-  never in stdout/stderr/logs/commits, never in cache files. `redact()`
-  (`lib/credentials.mjs`) is the single choke point; a 6-char prefix is the only
-  display allowed.
-- **Never call the Wiki API outside `ywiki`** (no `curl`), and never read the
-  credential file directly.
-- **Zero dependencies, no new runtime.** Node ≥ 20, ESM `.mjs` + JSDoc, tests via
-  `node --test`. Do not add an npm dependency, a bundler, or `bun`.
-- **Endpoints come from [`docs/wiki-api-notes.md`](docs/wiki-api-notes.md).** Do
-  not invent endpoints, parameters, or request bodies; if the note is silent,
-  stop and ask.
+  the `&[text](id)` marker in the page content. To add: create the comment, then
+  edit in the marker; if the edit fails, delete the comment. To delete: remove
+  the comment, then the marker; if the marker write fails, report `marker_error`
+  — the marker is dangling.
+
+- **Writes are never replayed.** A timeout or `5xx` on a mutation leaves the
+  outcome unknown: report it and tell the caller to re-read the page. A `401`
+  may be retried once after refresh, reads and mutations alike, because a
+  rejected request has no side effects.
+
+- **One credential, lazily refreshed.** `ywiki` owns
+  `~/.config/ywiki/credentials.toml`; refresh is lazy and single-flight.
+  Credential writes go through `writeCredential()` only.
+
+- **The token stays inside `ywiki`.** Read it in-process through
+  `lib/credentials.mjs`; it never appears in `argv`, stdout/stderr, logs,
+  commits, or cache files. `redact()` is the single choke point for token-bearing
+  strings; only a 6-character prefix may be displayed.
+
+- **All Wiki API traffic goes through `ywiki`.** `lib/client.mjs` is the only
+  caller of the Wiki API.
+
+- **Use the confirmed Wiki API surface.** Endpoints, parameters, and request
+  bodies come from [`docs/wiki-api-notes.md`](docs/wiki-api-notes.md).
+
+- **Zero dependencies, no new runtime.** Node ≥ 20, ESM `.mjs` + JSDoc, tests
+  via `node --test`.
+
 - **The version lives only in `package.json`.** `bin/ywiki.mjs` reads it for
   `--version`; do not hardcode a version anywhere else (release = bump
   `package.json` only).
-- **Never commit page content, response dumps, or secrets.**
+
+## Stop and ask
+
+Before any of these, stop and raise it with the user:
+
+- a new dependency, bundler, or runtime;
+- a second token source, refresh timer, or credential store;
+- a mutating verb outside `page …`;
+- an endpoint, parameter, or request body outside the confirmed API surface.
 
 ## Layout
 
 | Path | Role |
 |---|---|
-| `bin/ywiki.mjs` | argv parsing, subcommand dispatch, exit codes |
-| `lib/credentials.mjs` | credential load/store, auth headers, `redact()` |
-| `lib/auth.mjs` | `auth login|logout|status`, `yc` runner, token validation |
-| `lib/oauth.mjs` | PKCE, authorize URL, loopback callback, token exchange/refresh |
-| `lib/refresh.mjs` | lazy 401 refresh: `yc`/OAuth, single-flight + cooldown |
-| `lib/client.mjs` | HTTP, retries, 401 self-heal, disk cache |
-| `lib/write.mjs` | pure helpers for `page create|edit|append|delete` |
-| `lib/inline.mjs` | ranges, `&[text](id)` markers, `page locate` |
-| `lib/history.mjs` | revision queries, summaries, current-revision marker |
-| `lib/diff.mjs` | pure line diff (LCS + bounded fallback), unified patch |
-| `lib/comments.mjs` | comment bodies, queries, summaries |
-| `lib/output.mjs` | `EXIT` codes, `WikiError`, clipping, usage text |
+| `bin/ywiki.mjs` | argv, dispatch, exit codes; the only wiring layer |
+| `lib/*.mjs` | helpers and I/O modules; each file header names its job |
 | `test/*.test.mjs` | offline tests; fixtures in `test/fixtures/` |
+
+Keep helpers pure: no network and no filesystem in `write`, `inline`, `history`,
+`diff`, or `comments`. The I/O modules are `auth`, `client`, `credentials`,
+`oauth`, `refresh`, and `output`.
 
 ## Tests
 
-`npm test` (i.e. `node --test test/*.test.mjs`) must be green and must run
-offline: credentials come from a tmp `WIKI_CREDENTIALS`, the real `yc` is
-replaced by a stub via `WIKI_YC_BIN`, and HTTP is stubbed with `fetchImpl`. The
-real credential file is never read and no network call is made. Write fixtures
-and stubs before the first test.
+The suite is offline: credentials from a tmp `WIKI_CREDENTIALS`, `yc` replaced
+by a stub via `WIKI_YC_BIN`, and HTTP stubbed with `fetchImpl`. Never touch the
+real credential file or the network. A new behaviour lands with a test; its
+fixtures and stubs come with it.
 
-> The script must pass the test files as an **unquoted** shell glob
-> (`node --test test/*.test.mjs`): Node 20 does not expand a quoted glob inside
-> `--test`, and the bare/directory forms pick up `test/fixtures/` and fail.
+> Keep the script as `node --test test/*.test.mjs` (unquoted): Node 20 does not
+> expand a quoted glob, and the directory form picks up `test/fixtures/`.
 
 ## Commits and reports
 
-One task per commit: `feat: …` / `fix: …` / `docs: …`. After a task, report
-`DONE | artifacts | verification command | result | next`.
+One task per commit, Conventional Commits (`feat`, `fix`, `docs`, `chore`,
+`ci`, `refactor`). Commits carry code, tests, and docs; page content, response
+dumps, and secrets stay out. Close with
+`DONE | artifacts | verification command | result | next`, e.g.
+`DONE | AGENTS.md | npm test | 193 pass | apply review`. Report the command you
+actually ran; if you did not run it, say so.
+
+## Style
+
+Code comments and docs are English; help text is English. Match the language of
+the surrounding command's runtime messages.
 
 ## Where the truth lives
 
-- [`README.md`](README.md) — install, usage, flags, env vars, exit codes, auth.
 - [`docs/runbook.md`](docs/runbook.md) — operations, troubleshooting, token lifecycle.
-- [`docs/wiki-api-notes.md`](docs/wiki-api-notes.md) — the confirmed Wiki API surface.
 - [`docs/conventions.md`](docs/conventions.md) — command shape, output modes and exit codes.
 - [`docs/agent-permissions.md`](docs/agent-permissions.md) — OpenCode permission example.
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — development setup, pull requests, changelog.

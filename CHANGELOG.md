@@ -26,7 +26,7 @@ default, explicit writes, and its own credential with lazy refresh.
 ### Added
 
 - Read commands: `whoami`, `page get|search|descendants|locate|history|revision|diff`,
-  `page comment list|thread`, `space list`, and the flat shortcuts
+  `page comment list`, `space list`, and the flat shortcuts
   `get` · `search` · `tree` · `spaces`. Full-text search and a tree walk built on
   `GET /v1/pages/descendants`; `page diff` compares two revisions locally with a
   unified diff (`--context 0–50`, coarse fallback for very large pages).
