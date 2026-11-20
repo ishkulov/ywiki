@@ -8,9 +8,16 @@ explicit `page …` subcommands. Zero dependencies; Node.js ≥ 20.
 ## Install
 
 ```bash
-npm install -g .        # in a checkout of this repo; puts ywiki on PATH
+npm install -g ywiki    # from the npm registry
 ywiki auth login        # obtain and store a credential (see Auth)
 ywiki whoami            # verify: login, scheme, org, credential age
+```
+
+From a checkout instead of the registry:
+
+```bash
+git clone https://github.com/ishkulov/ywiki.git && cd ywiki
+npm install -g .        # puts ywiki on PATH
 ```
 
 See [Auth](#auth) for login methods and the organization id.
@@ -139,7 +146,9 @@ npm test        # offline; no network
 More docs: [`runbook.md`](docs/runbook.md) — operations and token lifecycle ·
 [`wiki-api-notes.md`](docs/wiki-api-notes.md) — confirmed API surface ·
 [`conventions.md`](docs/conventions.md) — command shape and exit codes ·
-[`agent-permissions.md`](docs/agent-permissions.md) — OpenCode permissions.
+[`agent-permissions.md`](docs/agent-permissions.md) — OpenCode permissions ·
+[`CHANGELOG.md`](CHANGELOG.md) — release history ·
+[`CONTRIBUTING.md`](CONTRIBUTING.md) — how to contribute.
 
 ## License
 
