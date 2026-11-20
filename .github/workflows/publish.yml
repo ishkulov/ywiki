@@ -1,9 +1,13 @@
 name: Publish
 
+# Tag-triggered publishing is disabled until the first manual `npm publish`
+# creates @ishkulov/ywiki and a trusted publisher (OIDC) is configured on
+# npmjs.com. Re-enable the `push: tags` trigger below after that; by then the
+# NPM_TOKEN path can be dropped in favour of OIDC (no long-lived secret).
 on:
-  push:
-    tags:
-      - "v*"
+  # push:
+  #   tags:
+  #     - "v*"
   workflow_dispatch:
 
 permissions:
@@ -22,11 +26,10 @@ jobs:
           node-version: 22
           registry-url: https://registry.npmjs.org
       # Secrets cannot be referenced in `if`; a job-level env var can. If
-      # NPM_TOKEN is unset (repository not wired up yet, or using OIDC trusted
-      # publishing instead), the steps below are skipped and the run stays green.
+      # NPM_TOKEN is unset, the steps below are skipped and the run stays green.
       - name: Test before publishing
         if: ${{ env.NODE_AUTH_TOKEN != '' }}
         run: npm test
       - name: Publish to npm
         if: ${{ env.NODE_AUTH_TOKEN != '' }}
-        run: npm publish --provenance --access public
+        run: npm publish --provenance
