@@ -8,9 +8,9 @@ explicit `page …` subcommands. Zero dependencies; Node.js ≥ 20.
 ## Install
 
 ```bash
-npm install -g ywiki    # from the npm registry
-ywiki auth login        # obtain and store a credential (see Auth)
-ywiki whoami            # verify: login, scheme, org, credential age
+npm install -g @ishkulov/ywiki    # from the npm registry; installs the `ywiki` command
+ywiki auth login                  # obtain and store a credential (see Auth)
+ywiki whoami                      # verify: login, scheme, org, credential age
 ```
 
 From a checkout instead of the registry:

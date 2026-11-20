@@ -8,7 +8,9 @@ mutations go only through the explicit `page create|edit|append|delete` and
 ## Install
 
 ```bash
-npm install -g .          # from a checkout of this repo
+npm install -g @ishkulov/ywiki   # from the npm registry; installs `ywiki`
+# or, from a checkout of this repo:
+npm install -g .
 ywiki auth login --method iam --organization-id <org>   # cloud/federated
 ywiki whoami              # verify: login, scheme, org, token prefix
 ```
