@@ -22,10 +22,10 @@ jobs:
   npm:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       # Trusted publishing needs npm CLI >= 11.5.1 and Node >= 22.14; Node 24
       # ships a suitable npm, and caching is disabled for release builds.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
