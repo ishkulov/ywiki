@@ -4,7 +4,7 @@
   "description": "CLI for Yandex Wiki (reads by default; explicit page and comment writes) with its own credential and lazy auth refresh.",
   "type": "module",
   "bin": {
-    "ywiki": "./bin/ywiki.mjs"
+    "ywiki": "bin/ywiki.mjs"
   },
   "files": [
     "bin",
