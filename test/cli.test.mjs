@@ -345,7 +345,7 @@ test("auth login uses the bundled OAuth client id when none is configured", asyn
       { WIKI_IAM_TOKEN: "", WIKI_TOKEN: "", WIKI_OAUTH_CLIENT_ID: "", WIKI_CREDENTIALS: cred },
     );
     assert.equal(r.status, 8, r.stderr);
-    assert.match(r.stderr, /client_id=17811584c6ca4023bb57db6c36c6fa58/);
+    assert.match(r.stderr, /client_id=574f967087084ad4a156cd54f4651706/);
     assert.ok(!existsSync(cred), "no credential file is written");
   } finally {
     rmSync(dir, { recursive: true, force: true });
