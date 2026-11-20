@@ -29,7 +29,7 @@ dependency-free CLI; the rules below are what keep it that way. They match
 ## Development
 
 ```bash
-npm test        # node --test 'test/*.test.mjs'; offline, no network
+npm test        # node --test test/*.test.mjs; offline, no network
 ```
 
 `npm test` must be green and must run offline: credentials come from a tmp
@@ -37,8 +37,9 @@ npm test        # node --test 'test/*.test.mjs'; offline, no network
 HTTP is stubbed with `fetchImpl`. The real credential file is never read and no
 network call is made. Write fixtures and stubs before the first test.
 
-> Keep the quoted glob form `node --test 'test/*.test.mjs'` used in
-> `package.json`: on Node 24 the directory form `node --test test/` is broken.
+> Pass the test files as an **unquoted** shell glob (`node --test
+> test/*.test.mjs`): Node 20 does not expand a quoted glob inside `--test`, and
+> the bare/directory forms pick up `test/fixtures/` and fail.
 
 ## Commits
 

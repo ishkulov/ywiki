@@ -60,14 +60,15 @@ dependency-free, token-safe, and reads-by-default.
 
 ## Tests
 
-`npm test` (i.e. `node --test 'test/*.test.mjs'`) must be green and must run
+`npm test` (i.e. `node --test test/*.test.mjs`) must be green and must run
 offline: credentials come from a tmp `WIKI_CREDENTIALS`, the real `yc` is
 replaced by a stub via `WIKI_YC_BIN`, and HTTP is stubbed with `fetchImpl`. The
 real credential file is never read and no network call is made. Write fixtures
 and stubs before the first test.
 
-> Node 24's `node --test test/` (directory argument) is broken — keep the quoted
-> glob form used in `package.json`.
+> The script must pass the test files as an **unquoted** shell glob
+> (`node --test test/*.test.mjs`): Node 20 does not expand a quoted glob inside
+> `--test`, and the bare/directory forms pick up `test/fixtures/` and fail.
 
 ## Commits and reports
 
