@@ -1,6 +1,6 @@
 {
   "name": "@ishkulov/ywiki",
-  "version": "0.7.2",
+  "version": "0.7.3",
   "description": "CLI for Yandex Wiki (reads by default; explicit page and comment writes) with its own credential and lazy auth refresh.",
   "type": "module",
   "bin": {

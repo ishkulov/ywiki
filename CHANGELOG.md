@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.3] - 2026-11-20
+
+### Changed
+
+- Published on npm as **`@ishkulov/ywiki`** (`npm install -g @ishkulov/ywiki`);
+  the `ywiki` command and the GitHub repository name are unchanged. The
+  unscoped `ywiki` name was rejected by npm as too similar to an existing
+  package.
+- Publishing now runs from GitHub Actions with npm Trusted Publishing (OIDC)
+  and provenance; no npm token is stored in the repository.
+
 ## [0.7.2] - 2026-11-20
 
 First public release. Zero-dependency Node CLI for Yandex Wiki: reads by
@@ -57,5 +68,6 @@ default, explicit writes, and its own credential with lazy refresh.
 - `docs/agent-permissions.md` — OpenCode permission example.
 - `AGENTS.md` — the rules that keep the tool dependency-free and token-safe.
 
-[Unreleased]: https://github.com/ishkulov/ywiki/compare/v0.7.2...HEAD
+[Unreleased]: https://github.com/ishkulov/ywiki/compare/v0.7.3...HEAD
+[0.7.3]: https://github.com/ishkulov/ywiki/releases/tag/v0.7.3
 [0.7.2]: https://github.com/ishkulov/ywiki/releases/tag/v0.7.2
