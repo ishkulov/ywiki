@@ -51,14 +51,14 @@ HTTP → code: `401 → 3`, `403 → 4`, `404 → 5`, `409`/`ALREADY_INDEXING �
   `~/.config/ywiki/credentials.toml` and refreshes lazily on `401`
   (`yc iam create-token` for IAM, `refresh_token` for OAuth).
 - **ENV names are `WIKI_*` only.**
-- **`auth login` methods.** `browser` (OAuth + PKCE, the TTY default when a
-  client id is configured), `token` (paste OAuth/IAM), and `iam`
-  (`yc iam create-token`, the TTY default otherwise) are available. In a TTY the
-  method, the organization id, and a missing `browser` client id are prompted
-  (empty client id → `iam`); outside a TTY `--method` and `--organization-id`
-  (or `WIKI_ORGANIZATION_ID`) are required. `auth status` and `auth logout`
-  manage the local file without a network call; `auth logout` needs `--yes`
-  outside a TTY.
+- **`auth login` methods.** `browser` (OAuth + PKCE, the TTY default, using a
+  bundled OAuth app id), `token` (paste OAuth/IAM), and `iam`
+  (`yc iam create-token`) are available. In a TTY the method and, when absent,
+  the organization id are prompted; outside a TTY `--method` and
+  `--organization-id` (or `WIKI_ORGANIZATION_ID`) are required. The bundled app
+  id is overridden by `--client-id` or `WIKI_OAUTH_CLIENT_ID`. `auth status` and
+  `auth logout` manage the local file without a network call; `auth logout`
+  needs `--yes` outside a TTY.
 - **No `config` command** — there is nothing to configure.
 - **No `--ai-access-check`** — not part of the Wiki API surface.
 - **Cursor flags** (`--all`, `--cursor N`) are exposed on the read endpoints

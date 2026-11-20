@@ -16,11 +16,10 @@ ywiki auth login --method iam --organization-id <org>   # cloud/federated
 ywiki whoami            # verify: login, scheme, org, credential age
 ```
 
-In a TTY `auth login` prompts for a method (browser when an OAuth client id is
-configured, otherwise iam), the organization id, and — for `browser` — the
-OAuth client id (Enter there falls back to iam); outside a TTY pass `--method`
-and `--organization-id`. Cloud/federated accounts should use `--method iam`.
-See [Auth](#auth).
+In a TTY `auth login` prompts for a method (browser default) and the
+organization id when it is not given by flag or env; outside a TTY pass
+`--method` and `--organization-id`. Cloud/federated accounts may need
+`--method iam`. See [Auth](#auth).
 
 ## Quick start
 
@@ -115,17 +114,13 @@ In a TTY, a missing `--organization-id` is asked for interactively, so plain
 the `b1g…` organization id from the Yandex Cloud console, or a numeric id for
 Yandex 360 for Business (Tracker → Администрирование → Организации).
 
-`browser` needs a Wiki OAuth app: <https://oauth.yandex.ru> → **Create** →
-permissions `wiki:read` / `wiki:write` → copy the **ClientID**. Pass it as
-`--client-id`, set `WIKI_OAUTH_CLIENT_ID`, or paste it at the TTY prompt; an
-empty answer falls back to `iam` (the practical path for cloud/federated
-accounts).
-
-- `browser` (the TTY default when a client id is configured) — OAuth 2.0 + PKCE
-  on `127.0.0.1`;
+- `browser` (the TTY default) — OAuth 2.0 + PKCE on `127.0.0.1`; uses the
+  bundled CLI OAuth app, so it works out of the box. Override the app id with
+  `--client-id` or `WIKI_OAUTH_CLIENT_ID` (for a private app, create it at
+  <https://oauth.yandex.ru> with `wiki:read`/`wiki:write`).
 - `token` — paste an OAuth or IAM token on stdin or a hidden prompt.
-- `iam` (the TTY default otherwise) — run `yc --no-browser iam create-token` and
-  store the result.
+- `iam` — run `yc --no-browser iam create-token` and store the result; the
+  practical path for cloud and federated accounts.
 
 On a `401`, `ywiki` makes one self-heal attempt for reads (IAM via
 `yc iam create-token`, OAuth via its `refresh_token`); otherwise re-run

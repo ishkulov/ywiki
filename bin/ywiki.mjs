@@ -12,7 +12,15 @@ import { createInterface } from "node:readline/promises";
 import { credentials, credentialPath, hasEnvCredential, redact, AuthError } from "../lib/credentials.mjs";
 import { createClient } from "../lib/client.mjs";
 import { refreshOnce } from "../lib/refresh.mjs";
-import { login, logout, organizationKind, readSecret, status as authStatus, tokenPageUrl } from "../lib/auth.mjs";
+import {
+  DEFAULT_OAUTH_CLIENT_ID,
+  login,
+  logout,
+  organizationKind,
+  readSecret,
+  status as authStatus,
+  tokenPageUrl,
+} from "../lib/auth.mjs";
 import {
   clip,
   clipHint,
@@ -393,18 +401,14 @@ async function confirm(question) {
 /** Where an organization id comes from; shared by the prompt and the error. */
 const ORG_HINT = "b1g… из консоли Yandex Cloud или числовой id Яндекс 360";
 
-/** How to get an OAuth app id; shared by the prompt and the error. */
-const CLIENT_ID_HINT =
-  "OAuth-приложение с доступами wiki:read/wiki:write: https://oauth.yandex.ru → Создать → скопируйте ClientID";
-
 /**
- * Ask for whatever login input is missing (method, organization id, OAuth
- * client id) over one readline interface: two sequential interfaces on the same
- * stdin drop buffered input, so all questions must share one.
- * @param {{ method: string | null, org: string, clientId: string, defaultMethod: string }} inputs
- * @returns {Promise<{ method: string, org: string, clientId: string }>}
+ * Ask for whatever login input is missing (method, organization id) over one
+ * readline interface: two sequential interfaces on the same stdin drop buffered
+ * input, so both questions must share one.
+ * @param {{ method: string | null, org: string, defaultMethod: string }} inputs
+ * @returns {Promise<{ method: string, org: string }>}
  */
-async function promptLoginInputs({ method, org, clientId, defaultMethod }) {
+async function promptLoginInputs({ method, org, defaultMethod }) {
   const p = promptSession();
   try {
     if (!method) {
@@ -419,13 +423,7 @@ async function promptLoginInputs({ method, org, clientId, defaultMethod }) {
       if (/\s/.test(answer)) throw new UsageError("auth login: organization id не содержит пробелов");
       org = answer;
     }
-    if (method === "browser" && !clientId) {
-      process.stderr.write(`Для browser-входа нужно ${CLIENT_ID_HINT}.\n`);
-      const answer = await p.ask("OAuth client id (Enter — войти по IAM-токену): ");
-      if (answer) clientId = answer;
-      else method = "iam";
-    }
-    return { method, org, clientId };
+    return { method, org };
   } finally {
     p.close();
   }
@@ -503,33 +501,23 @@ async function cmdAuthLogin(opts) {
       "активен WIKI_IAM_TOKEN или WIKI_TOKEN; снимите переменную окружения, чтобы сохранить файл credential",
     );
   }
-  let clientId = String(opts["--client-id"] || process.env.WIKI_OAUTH_CLIENT_ID || "");
+  const clientId = opts["--client-id"] || process.env.WIKI_OAUTH_CLIENT_ID || DEFAULT_OAUTH_CLIENT_ID;
   let method = opts["--method"] ? String(opts["--method"]) : null;
   if (method && method !== "browser" && method !== "token" && method !== "iam") {
     throw new UsageError(`auth login: неизвестный метод «${method}» (browser|iam|token)`);
   }
   let org = String(opts["--organization-id"] || process.env.WIKI_ORGANIZATION_ID || "");
-  // `browser` is the nicer flow, but it needs an OAuth app id; `iam` is the
-  // practical default for cloud/federated accounts without one.
-  const defaultMethod = clientId ? "browser" : "iam";
-  const interactive = !opts["--no-input"] && Boolean(process.stdin.isTTY);
-  if (!interactive) {
+  // `browser` is the default: the bundled app id makes it usable out of the box.
+  const defaultMethod = "browser";
+  if ((!method || !org) && (opts["--no-input"] || !process.stdin.isTTY)) {
     if (!method) {
       throw new UsageError("auth login: укажите --method browser|iam|token (интерактивный выбор недоступен)");
     }
-    if (!org) {
-      throw new UsageError(
-        `auth login: нужен organization id — ${ORG_HINT}; укажите --organization-id или WIKI_ORGANIZATION_ID`,
-      );
-    }
-    if (method === "browser" && !clientId) {
-      throw new UsageError(
-        `auth login: для browser-входа нужен OAuth client id — ${CLIENT_ID_HINT}; также можно указать --client-id или WIKI_OAUTH_CLIENT_ID`,
-      );
-    }
-  } else if (!method || !org || (method === "browser" && !clientId)) {
-    ({ method, org, clientId } = await promptLoginInputs({ method, org, clientId, defaultMethod }));
+    throw new UsageError(
+      `auth login: нужен organization id — ${ORG_HINT}; укажите --organization-id или WIKI_ORGANIZATION_ID`,
+    );
   }
+  if (!method || !org) ({ method, org } = await promptLoginInputs({ method, org, defaultMethod }));
   const timeoutMs = timeoutFrom(opts);
   const callbackTimeoutMs = opts["--callback-timeout-ms"] ? Number(opts["--callback-timeout-ms"]) : undefined;
 
@@ -538,15 +526,15 @@ async function cmdAuthLogin(opts) {
     if (page) {
       process.stderr.write(`Откройте страницу и вставьте токен:\n${page}\n`);
     } else {
-      process.stderr.write(`Создайте ${CLIENT_ID_HINT} и вставьте токен,\n`);
+      process.stderr.write("Откройте https://oauth.yandex.ru/ и создайте приложение с доступом к Wiki API,\n");
       process.stderr.write("либо используйте IAM-токен. Вставьте токен:\n");
     }
   }
 
   if (method === "browser" && organizationKind(org) === "cloud") {
+    process.stderr.write("Для cloud organization OAuth-страница может не работать.\n");
     process.stderr.write(
-      "Для cloud-организации OAuth-страница может не работать. Если она отклонит организацию —\n" +
-        "используйте IAM-токен: ywiki auth login --method iam (yc iam create-token).\n",
+      "  Если страница отклонит организацию, используйте --method token с IAM-токеном (yc iam create-token) или --method iam.\n",
     );
   }
 

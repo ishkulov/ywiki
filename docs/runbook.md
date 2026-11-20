@@ -126,18 +126,14 @@ ywiki auth login --method iam --organization-id <org>   # or --method browser/to
   and IAM instructions.
 - `iam` — `yc --no-browser iam create-token`, validated against `GET /users/me`.
 
-In a TTY, `auth login` asks for a method and for the organization id when
-neither `--organization-id` nor `WIKI_ORGANIZATION_ID` is set; a missing OAuth
-client id is asked for too, and an empty answer falls back to `iam`. The method
-default is `browser` when an OAuth client id is configured, otherwise `iam`.
-Outside a TTY the method comes from `--method` and the org id from the flag or
-`WIKI_ORGANIZATION_ID`. For a cloud organization the OAuth page may not work;
-use `--method iam`. An IAM token lives about 12 hours and is refreshed lazily.
-
-A `browser` login needs a Wiki OAuth app: <https://oauth.yandex.ru> → **Create**
-→ permissions `wiki:read` / `wiki:write` → copy the **ClientID** into
-`--client-id` or `WIKI_OAUTH_CLIENT_ID`. The organization id is shown in Tracker
-under **Администрирование** → **Организации**.
+In a TTY, `auth login` asks for a method (browser default) and for the
+organization id when neither `--organization-id` nor `WIKI_ORGANIZATION_ID` is
+set. Outside a TTY the method comes from `--method` and the org id from the flag
+or `WIKI_ORGANIZATION_ID`. The browser flow uses a bundled OAuth app id; override
+it with `--client-id` or `WIKI_OAUTH_CLIENT_ID` (a private app needs the
+`wiki:read`/`wiki:write` scopes). For a cloud organization the OAuth page may
+not work; then use `--method iam` or paste an IAM token with `--method token`.
+An IAM token lives about 12 hours and is refreshed lazily.
 
 ## Verify / troubleshoot
 
@@ -169,7 +165,7 @@ ywiki spaces              # quick read-only reachability check
 | `WIKI_IAM_TOKEN` | IAM token; overrides the file (scheme=iam) |
 | `WIKI_TOKEN` | OAuth token; overrides the file (scheme=oauth) |
 | `WIKI_ORGANIZATION_ID` | organization id for ENV tokens |
-| `WIKI_OAUTH_CLIENT_ID` | default OAuth client id for browser/token login |
+| `WIKI_OAUTH_CLIENT_ID` | override the bundled OAuth client id for browser/token login |
 | `WIKI_CACHE_DIR` | cache directory |
 | `WIKI_NO_CACHE=1` | disable the disk cache |
 | `WIKI_BASE_URL` | API base (tests) |

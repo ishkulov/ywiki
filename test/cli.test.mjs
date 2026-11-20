@@ -332,18 +332,20 @@ test("auth login without an organization id needs a flag or env (non-interactive
   }
 });
 
-test("auth login --method browser without a client id fails before any OAuth flow", async () => {
+test("auth login uses the bundled OAuth client id when none is configured", async () => {
   const dir = mkdtempSync(join(tmpdir(), "ywiki-auth-cli-"));
   const cred = join(dir, "credentials.toml");
   try {
-    const r = await run(["auth", "login", "--method", "browser", "--organization-id", "orgTEST"], {
-      WIKI_IAM_TOKEN: "",
-      WIKI_TOKEN: "",
-      WIKI_OAUTH_CLIENT_ID: "",
-      WIKI_CREDENTIALS: cred,
-    });
-    assert.equal(r.status, 2);
-    assert.match(r.stderr, /client id/);
+    // --callback-timeout-ms 1: the flow stops right after printing the URL.
+    const r = await run(
+      [
+        "auth", "login", "--method", "browser", "--organization-id", "orgTEST",
+        "--no-open", "--callback-timeout-ms", "1",
+      ],
+      { WIKI_IAM_TOKEN: "", WIKI_TOKEN: "", WIKI_OAUTH_CLIENT_ID: "", WIKI_CREDENTIALS: cred },
+    );
+    assert.equal(r.status, 8, r.stderr);
+    assert.match(r.stderr, /client_id=04f433285f05403ab5dde94e26301d08/);
     assert.ok(!existsSync(cred), "no credential file is written");
   } finally {
     rmSync(dir, { recursive: true, force: true });
