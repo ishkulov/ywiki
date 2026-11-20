@@ -30,7 +30,6 @@ import {
   emit,
   wantJson,
   errorEnvelope,
-  VERSION,
   EXIT,
   WikiError,
   UsageError,
@@ -73,6 +72,16 @@ import {
   isCurrentRevision,
 } from "../lib/history.mjs";
 import { unifiedDiff, DIFF_CONTEXT_MAX } from "../lib/diff.mjs";
+
+/**
+ * Version of the package. `package.json` is the single source of truth and is
+ * shipped in the npm tarball, so this also works from a global install.
+ * @returns {string}
+ */
+function packageVersion() {
+  const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+  return pkg.version;
+}
 
 // ---------------------------------------------------------------------------
 // Argument parsing
@@ -1478,10 +1487,11 @@ async function main() {
   const { positionals, opts } = parsed;
 
   if (opts["--version"]) {
+    const version = packageVersion();
     if (opts["--json"]) {
-      process.stdout.write(JSON.stringify({ version: VERSION, contour: "wiki" }) + "\n");
+      process.stdout.write(JSON.stringify({ version, contour: "wiki" }) + "\n");
     } else {
-      line(`ywiki ${VERSION}`);
+      line(`ywiki ${version}`);
     }
     return;
   }

@@ -38,6 +38,9 @@ dependency-free, token-safe, and reads-by-default.
 - **Endpoints come from [`docs/wiki-api-notes.md`](docs/wiki-api-notes.md).** Do
   not invent endpoints, parameters, or request bodies; if the note is silent,
   stop and ask.
+- **The version lives only in `package.json`.** `bin/ywiki.mjs` reads it for
+  `--version`; do not hardcode a version anywhere else (release = bump
+  `package.json` only).
 - **Never commit page content, response dumps, or secrets.**
 
 ## Layout

@@ -254,6 +254,10 @@ test("--version and -v print the version; -v --json is machine-readable", async 
   assert.equal(long.status, 0);
   assert.match(long.stdout, /^ywiki \d+\.\d+\.\d+/);
 
+  // package.json is the single source of truth for the version.
+  const pkg = JSON.parse(readFileSync(join(HERE, "..", "package.json"), "utf8"));
+  assert.equal(long.stdout.trim(), `ywiki ${pkg.version}`);
+
   const short = await run(["-v"]);
   assert.equal(short.status, 0, short.stderr);
   assert.equal(short.stdout.trim(), long.stdout.trim());
