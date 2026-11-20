@@ -24,6 +24,14 @@
     "cli",
     "iam"
   ],
+  "author": "Ilarion Ishkulov",
   "license": "MIT",
-  "private": true
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ishkulov/ywiki.git"
+  },
+  "homepage": "https://github.com/ishkulov/ywiki#readme",
+  "bugs": {
+    "url": "https://github.com/ishkulov/ywiki/issues"
+  }
 }
