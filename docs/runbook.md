@@ -129,11 +129,15 @@ ywiki auth login --method iam --organization-id <org>   # or --method browser/to
 In a TTY, `auth login` asks for a method (browser default) and for the
 organization id when neither `--organization-id` nor `WIKI_ORGANIZATION_ID` is
 set. Outside a TTY the method comes from `--method` and the org id from the flag
-or `WIKI_ORGANIZATION_ID`. The browser flow uses a bundled OAuth app id; override
-it with `--client-id` or `WIKI_OAUTH_CLIENT_ID` (a private app needs the
-`wiki:read`/`wiki:write` scopes). For a cloud organization the OAuth page may
-not work; then use `--method iam` or paste an IAM token with `--method token`.
-An IAM token lives about 12 hours and is refreshed lazily.
+or `WIKI_ORGANIZATION_ID`. The browser flow uses a bundled OAuth app id;
+override it with `--client-id` or `WIKI_OAUTH_CLIENT_ID` (a private app needs
+the `wiki:read`/`wiki:write` scopes). The bundled app is a public CLI client
+(no secret, PKCE, loopback redirect): client id `17811584c6ca4023bb57db6c36c6fa58`
+with redirects `http://127.0.0.1:{21332,24816,28934}/callback`. It belongs to a
+work account — if it is ever replaced, update `DEFAULT_OAUTH_CLIENT_ID`
+(`lib/auth.mjs`) and ship a new version. For a cloud organization the OAuth page
+may not work; then use `--method iam` or paste an IAM token with `--method
+token`. An IAM token lives about 12 hours and is refreshed lazily.
 
 ## Verify / troubleshoot
 
