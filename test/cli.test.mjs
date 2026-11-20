@@ -14,6 +14,8 @@ import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { errorEnvelope, EXIT } from "../lib/output.mjs";
+
 const HERE = dirname(fileURLToPath(import.meta.url));
 const BIN = join(HERE, "..", "bin", "ywiki.mjs");
 const YC = join(HERE, "fixtures", "stub-yc.mjs");
@@ -378,6 +380,14 @@ test("auth login without --method needs a TTY (non-interactive exits 2)", async 
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("interrupted input maps to its own envelope and exit code 130", () => {
+  assert.equal(EXIT.interrupted, 130);
+  const text = errorEnvelope("interrupted", "Prompt was interrupted");
+  assert.match(text, /Error: Operation interrupted/);
+  assert.match(text, /Prompt was interrupted/);
+  assert.match(text, /Next: Run the command again when ready\./);
 });
 
 test("auth logout without --yes needs a TTY and keeps the file", async () => {

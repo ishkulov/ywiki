@@ -92,7 +92,8 @@ Environment: `WIKI_IAM_TOKEN` / `WIKI_TOKEN` + `WIKI_ORGANIZATION_ID`, plus
 `WIKI_BASE_URL`, `WIKI_YC_BIN`, `WIKI_YC_PROFILE`.
 
 Exit codes: `0` ok · `2` usage · `3` unauthenticated · `4` access denied ·
-`5` not found · `6` conflict · `8` unavailable. Full table and design rules:
+`5` not found · `6` conflict · `8` unavailable · `130` interrupted
+(Ctrl+C/Ctrl+D at a prompt). Full table and design rules:
 [`docs/conventions.md`](docs/conventions.md).
 
 ## Auth

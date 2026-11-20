@@ -33,6 +33,7 @@ of exit codes. This file records those conventions.
 | 5 | not_found |
 | 6 | conflict |
 | 8 | unavailable (network, 429/5xx, timeout) |
+| 130 | interrupted (Ctrl+C/Ctrl+D at a prompt) |
 
 HTTP → code: `401 → 3`, `403 → 4`, `404 → 5`, `409`/`ALREADY_INDEXING → 6`,
 `429`/`5xx`/network/timeout → `8`.

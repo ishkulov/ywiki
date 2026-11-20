@@ -150,6 +150,8 @@ ywiki spaces              # quick read-only reachability check
   write, re-read the page and retry; for a search, retry shortly.
 - Exit `8` after a write → the request may have been applied; re-read the page
   before retrying. Writes are never replayed automatically.
+- Exit `130` → input was interrupted (Ctrl+C/Ctrl+D at a prompt); nothing was
+  written. Run the command again when ready.
 - Cache lives in `~/.cache/ywiki/` (TTL 60 s; `WIKI_NO_CACHE=1` disables it;
   `WIKI_CACHE_DIR` relocates it).
 

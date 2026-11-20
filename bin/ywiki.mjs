@@ -349,14 +349,44 @@ async function commentTextFrom(opts, parts, label) {
   throw new UsageError(`${label}: нужен текст комментария (позиционно или --file/--stdin/--content)`);
 }
 
+/**
+ * A prompt session over one readline interface. Ctrl+C and Ctrl+D (and a plain
+ * EOF) close the interface, which ends the line iterator: both are reported as
+ * `interrupted` (exit 130), not as a usage error.
+ * @returns {{ ask: (text: string) => Promise<string>, close: () => void }}
+ */
+function promptSession() {
+  const rl = createInterface({ input: process.stdin, output: process.stderr });
+  // Iterate instead of `rl.question`: the iterator keeps lines that arrived
+  // before the question was asked (pasted or pre-buffered input).
+  const lines = rl[Symbol.asyncIterator]();
+  const stop = () => rl.close();
+  rl.once("SIGINT", stop);
+  process.once("SIGINT", stop);
+  return {
+    /** @param {string} text */
+    async ask(text) {
+      process.stderr.write(text);
+      const { value, done } = await lines.next();
+      if (done) throw new WikiError("interrupted", "Prompt was interrupted");
+      return String(value).trim();
+    },
+    close() {
+      rl.removeListener("SIGINT", stop);
+      process.removeListener("SIGINT", stop);
+      rl.close();
+    },
+  };
+}
+
 /** @param {string} question @returns {Promise<boolean>} */
 async function confirm(question) {
-  const rl = createInterface({ input: process.stdin, output: process.stderr });
+  const p = promptSession();
   try {
-    const answer = (await rl.question(question)).trim().toLowerCase();
+    const answer = (await p.ask(question)).toLowerCase();
     return answer === "y" || answer === "yes" || answer === "да";
   } finally {
-    rl.close();
+    p.close();
   }
 }
 
@@ -371,33 +401,23 @@ const ORG_HINT = "b1g… из консоли Yandex Cloud или числово�
  * @returns {Promise<{ method: string, org: string }>}
  */
 async function promptLoginInputs({ method, org, defaultMethod }) {
-  const rl = createInterface({ input: process.stdin, output: process.stderr });
-  // Iterate instead of `rl.question`: the iterator keeps lines that arrived
-  // before the question was asked (pasted or pre-buffered input).
-  const lines = rl[Symbol.asyncIterator]();
-  /** @param {string} text */
-  const ask = async (text) => {
-    process.stderr.write(text);
-    const { value, done } = await lines.next();
-    if (done) throw new UsageError("auth login: ввод прерван (EOF)");
-    return String(value).trim();
-  };
+  const p = promptSession();
   try {
     if (!method) {
-      const answer = (await ask(`Метод входа [browser/iam/token] (${defaultMethod}): `)).toLowerCase();
+      const answer = (await p.ask(`Метод входа [browser/iam/token] (${defaultMethod}): `)).toLowerCase();
       if (!answer) method = defaultMethod;
       else if (answer === "browser" || answer === "iam" || answer === "token") method = answer;
       else throw new UsageError(`неизвестный метод входа: ${answer} (browser, iam, token)`);
     }
     if (!org) {
-      const answer = await ask(`Organization id (${ORG_HINT}): `);
+      const answer = await p.ask(`Organization id (${ORG_HINT}): `);
       if (!answer) throw new UsageError("auth login: organization id не введён");
       if (/\s/.test(answer)) throw new UsageError("auth login: organization id не содержит пробелов");
       org = answer;
     }
     return { method, org };
   } finally {
-    rl.close();
+    p.close();
   }
 }
 
